@@ -1,35 +1,51 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster as Sonner } from "sonner";
+import { Toaster } from "@/components/ui/toaster";
+
+import Authors from "./pages/Authors";
+import PublishWithUs from "./pages/PublishWithUs";
+import Contact from "./pages/Contact";
+import DetailsPage from "./pages/DetailsPage";
+import NotFound from "./pages/NotFound";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import Index from "@/pages/Index";
+
+// ✅ Create queryClient
+const queryClient = new QueryClient();
 
 function App() {
-  const [count, setCount] = useState(0)
+  // ✅ console.log outside JSX
+  console.log(Header, Footer, Toaster, Sonner, TooltipProvider);
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <div className="min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-1">
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/latest-releases" element={<Index />} />
+                <Route path="/books" element={<Index />} />
+                <Route path="/authors" element={<Authors />} />
+                <Route path="/publish" element={<PublishWithUs />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/details/:id" element={<DetailsPage />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </main>
+            <Footer />
+          </div>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
 }
 
-export default App
+export default App;

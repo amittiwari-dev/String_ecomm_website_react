@@ -36,7 +36,7 @@ function App() {
                 <Route path="/authors" element={<Authors />} />
                 <Route path="/publish" element={<PublishWithUs />} />
                 <Route path="/contact" element={<Contact />} />
-                <Route path="/details/:id" element={<DetailsPage />} />
+                <Route path="/book/:id" element={<DetailsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </main>

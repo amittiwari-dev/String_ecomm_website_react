@@ -26,7 +26,7 @@ const Header = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
             <img 
-              src="/lovable-uploads/b5bf059d-dafc-4ac7-b4aa-5e19c59fa47f.png" 
+              src="/img/logo/logo.png" 
               alt="Sterling Publishers" 
               className="h-10"
             />

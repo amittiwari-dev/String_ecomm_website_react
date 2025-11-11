@@ -6,9 +6,26 @@ import { Input } from '@/components/ui/input';
 import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger } from '@/components/ui/navigation-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { MegaMenu } from './MegaMenu';
+import { useCart } from '../context/CartContext';
+import { Badge } from '@/components/ui/badge';
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const { state: cart } = useCart();
+  
+  // When integrating with Laravel API, you might want to fetch cart count on component mount
+  // useEffect(() => {
+  //   const fetchCartCount = async () => {
+  //     try {
+  //       const response = await fetch('/api/cart/count');
+  //       const data = await response.json();
+  //       // Update cart count state
+  //     } catch (error) {
+  //       console.error('Error fetching cart count:', error);
+  //     }
+  //   };
+  //   fetchCartCount();
+  // }, []);
   
   const navigation = [
     { name: 'Latest Releases', href: '/latest-releases' },
@@ -99,9 +116,17 @@ const Header = () => {
               </Link>
             </Button>
             
-            <Button variant="ghost" size="icon" asChild>
+            <Button variant="ghost" size="icon" asChild className="relative">
               <Link to="/cart">
                 <ShoppingCart className="h-4 w-4" />
+                {cart.items.length > 0 && (
+                  <Badge 
+                    variant="destructive" 
+                    className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-xs"
+                  >
+                    {cart.items.length}
+                  </Badge>
+                )}
               </Link>
             </Button>
 

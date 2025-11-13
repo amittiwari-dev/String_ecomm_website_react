@@ -5,11 +5,29 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import type { Book } from '@/data/mockData';
+
+interface ApiBook {
+  id: number;
+  product_name: string;
+  product_description?: string;
+  author_name?: string;
+  product_slug?: string;
+  total_pages?: number;
+  price: string;
+  paperback_type?: string;
+  product_isbn?: string;
+  edition?: string;
+  product_image?: string;
+  is_active: number;
+  category?: { category_name: string };
+  subcategory?: { sub_category_name: string };
+}
 
 interface BookCardProps {
-  book: Book;
+  book: ApiBook;
 }
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/';
 
 const BookCard = ({ book }: BookCardProps) => {
   const [isWishlisted, setIsWishlisted] = useState(false);
@@ -18,15 +36,15 @@ const BookCard = ({ book }: BookCardProps) => {
   const handleWishlist = () => {
     setIsWishlisted(!isWishlisted);
     toast({
-      title: isWishlisted ? "Removed from wishlist" : "Added to wishlist",
-      description: `${book.title} ${isWishlisted ? 'removed from' : 'added to'} your wishlist.`,
+      title: isWishlisted ? 'Removed from wishlist' : 'Added to wishlist',
+      description: `${book.product_name} ${isWishlisted ? 'removed from' : 'added to'} your wishlist.`,
     });
   };
 
   const handleAddToCart = () => {
     toast({
-      title: "Added to cart",
-      description: `${book.title} has been added to your cart.`,
+      title: 'Added to cart',
+      description: `${book.product_name} has been added to your cart.`,
     });
   };
 
@@ -35,22 +53,28 @@ const BookCard = ({ book }: BookCardProps) => {
       <CardContent className="p-0">
         {/* Book Cover */}
         <div className="relative overflow-hidden">
-          {/* Bestseller Badge */}
-          {book.bestseller_rank && book.bestseller_rank <= 10 && (
+          {/* Bestseller Badge (optional example) */}
+          {book.is_active === 1 && (
             <div className="absolute top-2 left-2 z-10">
-              <Badge className="bg-accent text-accent-foreground font-bold">
-                BESTSELLER
-              </Badge>
+              <Badge className="bg-accent text-accent-foreground font-bold">BESTSELLER</Badge>
             </div>
           )}
-          
-          <Link to={`/book/${book.slug}`}>
+
+          <Link to={`/book/${book.product_slug || book.id}`}>
             <img
-              src={book.images[0]}
-              alt={book.title}
+              src={
+                book.product_image
+                  ? `${API_BASE_URL.replace('/api/', '')}/images/products/${book.product_image}`
+                  : '/img/book-categori/book-placeholder.png'
+              }
+              alt={book.product_name}
               className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
+              onError={(e) => {
+                e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+              }}
             />
           </Link>
+
           {/* Wishlist Button */}
           <Button
             variant="ghost"
@@ -58,110 +82,88 @@ const BookCard = ({ book }: BookCardProps) => {
             className="absolute top-2 right-2 bg-white/80 hover:bg-white"
             onClick={handleWishlist}
           >
-            <Heart 
-              className={`h-4 w-4 ${isWishlisted ? 'fill-primary text-primary' : ''}`} 
-            />
+            <Heart className={`h-4 w-4 ${isWishlisted ? 'fill-primary text-primary' : ''}`} />
           </Button>
 
           {/* New Release Badge */}
           <div className="absolute bottom-2 left-2">
-            {book.is_latest_release && (
-              <Badge className="bg-primary text-primary-foreground">
-                New Release
-              </Badge>
-            )}
+            <Badge className="bg-primary text-primary-foreground">New Release</Badge>
           </div>
         </div>
 
         {/* Book Details */}
         <div className="p-4 space-y-3">
+          {/* Title */}
           <div>
-            <Link 
-              to={`/book/${book.slug}`}
+            <Link
+              to={`/book/${book.product_slug || book.id}`}
               className="font-semibold line-clamp-2 hover:text-primary transition-colors"
             >
-              {book.title}
+              {book.product_name}
             </Link>
-            {book.subtitle && (
+            {book.product_description && (
               <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
-                {book.subtitle}
+                {book.product_description}
               </p>
             )}
           </div>
 
-          {/* Authors */}
-          <p className="text-sm text-muted-foreground">
-            by {book.authors.map(author => author.name).join(', ')}
-          </p>
+          {/* Author */}
+          <p className="text-sm text-muted-foreground">by {book.author_name || 'Unknown Author'}</p>
 
-          {/* Rating */}
-          {book.rating && (
-            <div className="flex items-center space-x-1">
-              <div className="flex">
-                {[...Array(5)].map((_, i) => (
-                  <Star
-                    key={i}
-                    className={`h-3 w-3 ${
-                      i < Math.floor(book.rating!) 
-                        ? 'fill-yellow-400 text-yellow-400' 
-                        : 'text-gray-300'
-                    }`}
-                  />
-                ))}
-              </div>
-              <span className="text-xs text-muted-foreground">
-                ({book.rating})
-              </span>
-            </div>
-          )}
+          {/* Rating (static demo) */}
+          <div className="flex items-center space-x-1">
+            {[...Array(5)].map((_, i) => (
+              <Star
+                key={i}
+                className={`h-3 w-3 ${
+                  i < 4 ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
+                }`}
+              />
+            ))}
+            <span className="text-xs text-muted-foreground">(4.5)</span>
+          </div>
 
-          {/* Format, Language, Pages */}
+          {/* Format / Category / Pages */}
           <div className="flex flex-wrap gap-1 text-xs text-muted-foreground mb-2">
-            <Badge variant="outline" className="text-xs">
-              {book.format}
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              {book.language}
-            </Badge>
-            {book.pages && (
+            {book.paperback_type && (
               <Badge variant="outline" className="text-xs">
-                {book.pages} pages
+                {book.paperback_type}
+              </Badge>
+            )}
+            {book.category?.category_name && (
+              <Badge variant="outline" className="text-xs">
+                {book.category.category_name}
+              </Badge>
+            )}
+            {book.total_pages && (
+              <Badge variant="outline" className="text-xs">
+                {book.total_pages} pages
               </Badge>
             )}
           </div>
 
-          {/* ISBN & Publication Date */}
+          {/* ISBN & Edition */}
           <div className="space-y-1 text-xs text-muted-foreground mb-3">
-            {book.isbn13 && (
-              <p>ISBN: {book.isbn13}</p>
-            )}
-            <p>Published: {new Date(book.publication_date).getFullYear()}</p>
+            {book.product_isbn && <p>ISBN: {book.product_isbn}</p>}
+            {book.edition && <p>Published: {book.edition}</p>}
           </div>
 
-          {/* Series Info */}
-          {book.series && (
+          {/* Subcategory Info */}
+          {book.subcategory?.sub_category_name && (
             <p className="text-xs text-primary font-medium mb-2">
-              Part of: {book.series}
+              Part of: {book.subcategory.sub_category_name}
             </p>
           )}
 
           {/* Price and Actions */}
           <div className="flex items-end justify-between pt-2">
             <div className="space-y-1">
-              <div className="text-lg font-bold text-primary">
-                ₹{book.price}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {book.stock_status}
-              </div>
+              <div className="text-lg font-bold text-primary">₹{book.price}</div>
+              <div className="text-xs text-muted-foreground">In Stock</div>
             </div>
-            
-            <Button
-              size="sm"
-              onClick={handleAddToCart}
-              disabled={book.stock_status === 'Out of Stock'}
-              className="shrink-0"
-            >
+
+            <Button size="sm" onClick={handleAddToCart} className="shrink-0">
               <ShoppingCart className="h-3 w-3 mr-1" />
               Add to Cart
             </Button>

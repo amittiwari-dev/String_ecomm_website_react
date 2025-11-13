@@ -19,6 +19,7 @@ import NotFound from "./pages/NotFound";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import Index from "@/pages/Index";
+import NewBooks from "@/pages/AllBooks";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
@@ -42,7 +43,7 @@ function App() {
               <main className="flex-1">
                 <Routes>
                   <Route path="/" element={<Index />} />
-                  <Route path="/latest-releases" element={<Index />} />
+                  <Route path="/latest-releases" element={<NewBooks />} />
                   <Route path="/books" element={<Index />} />
                   <Route path="/authors" element={<Authors />} />
                   <Route path="/publish" element={<PublishWithUs />} />

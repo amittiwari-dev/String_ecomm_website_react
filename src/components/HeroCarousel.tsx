@@ -75,7 +75,7 @@ const HeroCarousel = () => {
                       </div>
                       <div className="flex space-x-3">
                         <Button asChild>
-                          <Link to={`/book/${book.slug}`}>
+                          <Link to={`/book/${book.id}-${book.slug}`}>
                             View Details
                           </Link>
                         </Button>

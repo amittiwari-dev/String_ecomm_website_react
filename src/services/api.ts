@@ -60,16 +60,15 @@ export const BookService = {
     };
   },
 
-  // Get a single book by ID or slug
-  getBookById: async (idOrSlug: string): Promise<ApiResponse<Book | null>> => {
-    console.log('Fetching book with ID/Slug:', idOrSlug);
-    console.log('Available books:', books);
+  // Get a single book by ID (frontend should always send numeric/string id)
+  getBookById: async (id: string): Promise<ApiResponse<Book | null>> => {
+    console.log('Fetching book with ID:', id);
     
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500)); // Realistic delay
-    const book = books.find(book => book.id === idOrSlug || book.slug === idOrSlug);
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 200)); // Realistic delay
+    const book = books.find(book => book.id === id);
     
     if (!book) {
-      console.error(`Book with ID/Slug "${idOrSlug}" not found in the available books:`, books);
+      console.error(`Book with ID "${id}" not found`);
       return {
         data: null,
         status: 404,
@@ -115,12 +114,12 @@ export const BookService = {
     };
   },
 
-  // Get related books by ID or slug
-  getRelatedBooks: async (idOrSlug: string): Promise<ApiResponse<Book[]>> => {
+  // Get related books by ID
+  getRelatedBooks: async (id: string): Promise<ApiResponse<Book[]>> => {
     await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 200)); // Realistic delay
-    const book = books.find(book => book.id === idOrSlug || book.slug === idOrSlug);
+    const book = books.find(book => book.id === id);
     if (!book) {
-      console.error(`Cannot find related books - book with ID/Slug "${idOrSlug}" not found`);
+      console.error(`Cannot find related books - book with ID "${id}" not found`);
       return {
         data: [],
         status: 404,

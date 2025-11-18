@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation } from "react-router-dom";
 import { ShoppingCart, Star, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,8 +9,11 @@ import { Book } from "../data/mockData";
 import { toast } from "sonner";
 
 const DetailsPage = () => {
-  const { id } = useParams<{ id: string }>();
-  const [book, setBook] = useState<Book | null>(null);
+  const { idSlug } = useParams<{ idSlug: string }>();
+  // idSlug is expected in the form "{id}-{slug}". Extract numeric id part before the first '-'.
+  const id = idSlug ? String(idSlug).split('-')[0] : undefined;
+  const location = useLocation();
+  const [book, setBook] = useState<Book | null>(location.state?.book ?? null);
   const [relatedBooks, setRelatedBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
@@ -18,9 +21,24 @@ const DetailsPage = () => {
 
   useEffect(() => {
     const fetchBookDetails = async () => {
+      // If book was passed in navigation state (from API list), use it and skip fetch
+      if (location.state?.book) {
+        setBook(location.state.book);
+        setLoading(false);
+        // Still attempt to fetch related books
+        try {
+          const relatedResponse = await BookService.getRelatedBooks(location.state.book.id);
+          setRelatedBooks(relatedResponse.data || []);
+        } catch (err) {
+          console.error('Failed to fetch related books:', err);
+        }
+        return;
+      }
+
       if (!id) {
         console.error('No book ID provided');
         toast.error('Invalid book ID');
+        setLoading(false);
         return;
       }
 
@@ -176,7 +194,7 @@ const DetailsPage = () => {
                 key={related.id}
                 className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
               >
-                <Link to={`/book/${related.id}`}>
+                <Link to={`/book/${related.id}-${related.slug}`}>
                   <img
                     src={related.images[0]?.startsWith('http') ? related.images[0] : `${window.location.origin}${related.images[0]}`}
                     alt={related.title}
@@ -189,7 +207,7 @@ const DetailsPage = () => {
                 </Link>
 
                 <Link
-                  to={`/book/${related.id}`}
+                  to={`/book/${related.id}-${related.slug}`}
                   className="font-semibold line-clamp-2 hover:text-primary transition-colors"
                 >
                   {related.title}

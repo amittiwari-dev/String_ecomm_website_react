@@ -48,7 +48,7 @@ function App() {
                   <Route path="/authors" element={<Authors />} />
                   <Route path="/publish" element={<PublishWithUs />} />
                   <Route path="/contact" element={<Contact />} />
-                  <Route path="/book/:id" element={<DetailsPage />} />
+                  <Route path="/book/:idSlug" element={<DetailsPage />} />
                   <Route path="/cart" element={<Cart />} />
                   <Route path="/checkout" element={<Checkout />} />
                   <Route path="/order-confirmation" element={<OrderConfirmation />} />

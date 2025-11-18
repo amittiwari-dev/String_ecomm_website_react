@@ -98,7 +98,7 @@ const CartPage = () => {
               className="flex gap-4 p-4 bg-white rounded-lg shadow hover:shadow-md transition-shadow duration-200"
             >
               {/* Book Image */}
-              <Link to={`/book/${item.book.id}`} className="shrink-0">
+              <Link to={`/book/${item.book.id}-${item.book.slug}`} className="shrink-0">
                 <img
                   src={item.book.images[0]}
                   alt={item.book.title}
@@ -111,7 +111,7 @@ const CartPage = () => {
                 <div className="flex justify-between">
                   <div>
                     <Link
-                      to={`/book/${item.book.id}`}
+                      to={`/book/${item.book.id}-${item.book.slug}`}
                       className="font-semibold hover:text-primary transition-colors line-clamp-1"
                     >
                       {item.book.title}

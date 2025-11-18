@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { Book } from '../data/mockData';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/';
 
 interface CartItem {
   book: Book;
@@ -92,6 +93,81 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
 
 const CART_STORAGE_KEY = 'bookstore_cart';
 
+// Normalize incoming API or legacy book objects to the internal Book interface
+const normalizeToBook = (input: any): Book => {
+  // If it already looks like our Book type (has id as string and price as number), return as-is
+  if (!input) {
+    // return a minimal empty Book to avoid runtime crashes
+    return {
+      id: '0',
+      title: 'Unknown',
+      slug: 'unknown',
+      description: '',
+      language: 'English',
+      format: 'Paperback',
+      price: 0,
+      currency: 'INR',
+      publication_date: new Date().toISOString(),
+      images: ['/img/book-categori/book-placeholder.png'],
+      authors: [{ id: '0', name: 'Unknown', slug: 'unknown', bio: '' }],
+      category_id: '0',
+      tags: [],
+      is_latest_release: false,
+    } as Book;
+  }
+
+  // If input already has `price` as number and `images` array, assume it's a Book-like object
+  if (typeof input.price === 'number' && Array.isArray(input.images)) {
+    return input as Book;
+  }
+
+  // Map API-shaped book (ApiBook) to Book
+  const api: any = input;
+  const priceNum = Number(api.price) || 0;
+  const idStr = api.id != null ? String(api.id) : (api.slug || '0');
+  const slug = api.product_slug || api.slug || idStr;
+  // Normalize base URL (remove trailing /api or trailing slash) then build full path with a single slash
+  const base = API_BASE_URL.replace(/\/api\/?$/, '').replace(/\/$/, '');
+  const cover = api.product_image
+    ? `${base}/images/products/${api.product_image}`
+    : '/img/book-categori/book-placeholder.png';
+    
+
+  const mapped: Book = {
+    id: idStr,
+    title: api.product_name || api.title || 'Untitled',
+    subtitle: api.subtitle || undefined,
+    slug,
+    description: api.product_description || api.description || '',
+    language: api.language || 'English',
+    format: (api.paperback_type as any) || 'Paperback',
+    price: priceNum,
+    currency: api.currency || 'INR',
+    isbn10: api.isbn10 || api.product_isbn || undefined,
+    isbn13: api.isbn13 || undefined,
+    publication_date: api.publication_date || new Date().toISOString(),
+    pages: api.total_pages || api.pages || undefined,
+    stock_status: api.is_active === 1 ? 'In Stock' : (api.stock_status || 'Out of Stock'),
+    images: [cover],
+    authors: [
+      {
+        id: api.author_id ? String(api.author_id) : `a-${idStr}`,
+        name: api.author_name || (api.authors && api.authors[0]?.name) || 'Unknown',
+        slug: (api.author_name || 'unknown').toLowerCase().replace(/\s+/g, '-'),
+        bio: api.author_bio || ''
+      }
+    ],
+    series: api.series || undefined,
+    category_id: api.category_id || (api.category && api.category.id) || '0',
+    tags: api.tags || [],
+    bestseller_rank: api.bestseller_rank || undefined,
+    is_latest_release: !!api.is_latest_release,
+    rating: api.rating || undefined,
+  };
+
+  return mapped;
+};
+
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(cartReducer, { items: [], total: 0 });
 
@@ -99,14 +175,20 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const savedCart = localStorage.getItem(CART_STORAGE_KEY);
     if (savedCart) {
-      const parsedCart = JSON.parse(savedCart);
-      dispatch({ type: 'CLEAR_CART' });
-      parsedCart.items.forEach((item: CartItem) => {
-        dispatch({
-          type: 'ADD_TO_CART',
-          payload: { book: item.book, quantity: item.quantity }
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        dispatch({ type: 'CLEAR_CART' });
+        parsedCart.items.forEach((item: any) => {
+          const book = normalizeToBook(item.book);
+          const qty = Number(item.quantity) || 1;
+          dispatch({
+            type: 'ADD_TO_CART',
+            payload: { book, quantity: qty }
+          });
         });
-      });
+      } catch (err) {
+        console.error('Failed to parse saved cart:', err);
+      }
     }
   }, []);
 
@@ -115,7 +197,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  const addToCart = (book: Book, quantity = 1) => {
+  const addToCart = (bookInput: any, quantity = 1) => {
+    const book = normalizeToBook(bookInput);
     dispatch({ type: 'ADD_TO_CART', payload: { book, quantity } });
   };
 

@@ -137,29 +137,56 @@ const Index = () => {
             </div>
           </section>
 
-      {/* Books by Category Sections */}
-      {mainCategories.map((category) => {
-        const categoryBooks = getBooksByCategory(category.id).slice(0, 10);
-        
-        if (categoryBooks.length === 0) return null;
-        
-        return (
-          <section key={category.id} id={category.slug} className="py-16 scroll-mt-20">
+
+        {/* Other Religious Books */}
+         <section  className="py-16 scroll-mt-20">
             <div className="container mx-auto px-4">
               <div className="mb-8">
-                <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">{category.name}</h2>
+                <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Other Religious Books</h2>
                 <div className="w-16 h-1 bg-primary"></div>
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-                {categoryBooks.map((book) => (
+                {shirdiBooks.map((book) => (
                   <BookCard key={book.id} book={book} /> // afer add all api remove include mockData then it fine work
                 ))}
               </div>
             </div>
           </section>
-        );
-      })}
+
+          {/* Coffee Table Books and Paperbacks */}
+            <section  className="py-16 scroll-mt-20">
+            <div className="container mx-auto px-4">
+              <div className="mb-8">
+                <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Coffee Table Books and Paperbacks</h2>
+                <div className="w-16 h-1 bg-primary"></div>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                {shirdiBooks.map((book) => (
+                  <BookCard key={book.id} book={book} /> // afer add all api remove include mockData then it fine work
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Text Books */}
+           <section  className="py-16 scroll-mt-20">
+            <div className="container mx-auto px-4">
+              <div className="mb-8">
+                <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Text Books</h2>
+                <div className="w-16 h-1 bg-primary"></div>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                {shirdiBooks.map((book) => (
+                  <BookCard key={book.id} book={book} /> // afer add all api remove include mockData then it fine work
+                ))}
+              </div>
+            </div>
+          </section>
+
+    
     </div>
   );
 };

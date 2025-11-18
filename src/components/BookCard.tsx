@@ -5,6 +5,48 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useCart } from "../context/CartContext";
+import { toast as sonnerToast } from "sonner";
+import { Book } from '@/data/mockData';
+
+// Helper to map API-shaped book to internal Book shape used across the app
+const mapApiBookToBook = (api: any): Book => {
+  const price = Number(api.price) || 0;
+  const idStr = api.id != null ? String(api.id) : (api.product_slug || '0');
+  const slug = api.product_slug || idStr;
+  // Normalize API base and join with images path
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/').replace(/\/api\/?$/, '').replace(/\/$/, '');
+  const cover = api.product_image
+    ? `${base}/images/products/${api.product_image}`
+    : '/img/book-categori/book-placeholder.png';
+
+  return {
+    id: idStr,
+    title: api.product_name || api.title || 'Untitled',
+    subtitle: api.subtitle || undefined,
+    slug,
+    description: api.product_description || '',
+    language: api.language || 'English',
+    format: (api.paperback_type as any) || 'Paperback',
+    price,
+    currency: api.currency || 'INR',
+    publication_date: api.publication_date || new Date().toISOString(),
+    pages: api.total_pages || undefined,
+    stock_status: api.is_active === 1 ? 'In Stock' : 'Out of Stock',
+    images: [cover],
+    authors: [
+      {
+        id: api.author_id ? String(api.author_id) : `a-${idStr}`,
+        name: api.author_name || 'Unknown',
+        slug: (api.author_name || 'unknown').toLowerCase().replace(/\s+/g, '-'),
+        bio: ''
+      }
+    ],
+    category_id: api.category?.id || '0',
+    tags: api.tags || [],
+    is_latest_release: !!api.is_latest_release,
+  } as Book;
+};
 
 interface ApiBook {
   id: number;
@@ -32,6 +74,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const BookCard = ({ book }: BookCardProps) => {
   const [isWishlisted, setIsWishlisted] = useState(false);
   const { toast } = useToast();
+  const { addToCart } = useCart();
 
   const handleWishlist = () => {
     setIsWishlisted(!isWishlisted);
@@ -41,12 +84,9 @@ const BookCard = ({ book }: BookCardProps) => {
     });
   };
 
-  const handleAddToCart = () => {
-    toast({
-      title: 'Added to cart',
-      description: `${book.product_name} has been added to your cart.`,
-    });
-  };
+ 
+
+  const mapped = mapApiBookToBook(book);
 
   return (
     <Card className="group hover:shadow-lg transition-shadow duration-300">
@@ -60,14 +100,10 @@ const BookCard = ({ book }: BookCardProps) => {
             </div>
           )}
 
-          <Link to={`/book/${book.product_slug || book.id}`}>
+          <Link to={`/book/${mapped.id}-${mapped.slug}`} state={{ book: mapped }}>
             <img
-              src={
-                book.product_image
-                  ? `${API_BASE_URL.replace('/api/', '')}/images/products/${book.product_image}`
-                  : '/img/book-categori/book-placeholder.png'
-              }
-              alt={book.product_name}
+              src={mapped.images[0] || '/img/book-categori/book-placeholder.png'}
+              alt={mapped.title}
               className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
               onError={(e) => {
                 e.currentTarget.src = '/img/book-categori/book-placeholder.png';
@@ -96,10 +132,11 @@ const BookCard = ({ book }: BookCardProps) => {
           {/* Title */}
           <div>
             <Link
-              to={`/book/${book.product_slug || book.id}`}
+              to={`/book/${mapped.id}-${mapped.slug}`}
+              state={{ book: mapped }}
               className="font-semibold line-clamp-2 hover:text-primary transition-colors"
             >
-              {book.product_name}
+              {mapped.title}
             </Link>
             {book.product_description && (
               <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
@@ -109,7 +146,7 @@ const BookCard = ({ book }: BookCardProps) => {
           </div>
 
           {/* Author */}
-          <p className="text-sm text-muted-foreground">by {book.author_name || 'Unknown Author'}</p>
+            <p className="text-sm text-muted-foreground">by {mapped.authors?.[0]?.name || 'Unknown Author'}</p>
 
           {/* Rating (static demo) */}
           <div className="flex items-center space-x-1">
@@ -159,14 +196,24 @@ const BookCard = ({ book }: BookCardProps) => {
           {/* Price and Actions */}
           <div className="flex items-end justify-between pt-2">
             <div className="space-y-1">
-              <div className="text-lg font-bold text-primary">₹{book.price}</div>
+              <div className="text-lg font-bold text-primary">₹{mapped.price}</div>
               <div className="text-xs text-muted-foreground">In Stock</div>
             </div>
 
-            <Button size="sm" onClick={handleAddToCart} className="shrink-0">
-              <ShoppingCart className="h-3 w-3 mr-1" />
-              Add to Cart
-            </Button>
+             <div className="pt-2 flex justify-between items-center">
+               
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    addToCart(mapped);
+                    sonnerToast.success(`${mapped.title} added to cart`);
+                  }}
+                  className="shrink-0"
+                >
+                  <ShoppingCart className="h-3 w-3 mr-1" />
+                  Add to Cart
+                </Button>
+              </div>
           </div>
         </div>
       </CardContent>

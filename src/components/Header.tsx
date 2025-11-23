@@ -1,17 +1,21 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Search, ShoppingCart, Heart, Menu, X } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { Search, ShoppingCart, Heart, Menu, X, User, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger } from '@/components/ui/navigation-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MegaMenu } from './MegaMenu';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import { Badge } from '@/components/ui/badge';
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { state: cart } = useCart();
+  const { state: auth, logout } = useAuth();
+  const location = useLocation();
   
   // When integrating with Laravel API, you might want to fetch cart count on component mount
   // useEffect(() => {
@@ -130,6 +134,51 @@ const Header = () => {
               </Link>
             </Button>
 
+            {/* Authentication UI */}
+            {auth.isAuthenticated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="hidden md:flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    <span className="text-sm">{auth.user?.name || auth.user?.email}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem asChild>
+                    <Link to="/profile" className="cursor-pointer">
+                      Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/orders" className="cursor-pointer">
+                      Orders
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    onClick={logout}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <div className="hidden md:flex items-center gap-2">
+                {location.pathname !== '/login' && (
+                  <Button variant="ghost" asChild>
+                    <Link to="/login">Login</Link>
+                  </Button>
+                )}
+                {location.pathname !== '/register' && (
+                  <Button asChild>
+                    <Link to="/register">Sign Up</Link>
+                  </Button>
+                )}
+              </div>
+            )}
+
             {/* Mobile Menu */}
             <Sheet>
               <SheetTrigger asChild>
@@ -156,6 +205,51 @@ const Header = () => {
                       placeholder="Search books, authors..."
                       className="w-full"
                     />
+                  </div>
+
+                  {/* Mobile Authentication UI */}
+                  <div className="pt-4 border-t">
+                    {auth.isAuthenticated ? (
+                      <div className="flex flex-col space-y-3">
+                        <div className="flex items-center gap-2 px-2 py-2 bg-muted rounded-md">
+                          <User className="h-4 w-4" />
+                          <span className="text-sm font-medium">{auth.user?.name || auth.user?.email}</span>
+                        </div>
+                        <Link
+                          to="/profile"
+                          className="text-base font-medium hover:text-primary transition-colors px-2"
+                        >
+                          Profile
+                        </Link>
+                        <Link
+                          to="/orders"
+                          className="text-base font-medium hover:text-primary transition-colors px-2"
+                        >
+                          Orders
+                        </Link>
+                        <Button
+                          variant="destructive"
+                          onClick={logout}
+                          className="w-full justify-start"
+                        >
+                          <LogOut className="h-4 w-4 mr-2" />
+                          Logout
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col space-y-2">
+                        {location.pathname !== '/login' && (
+                          <Button variant="outline" asChild className="w-full">
+                            <Link to="/login">Login</Link>
+                          </Button>
+                        )}
+                        {location.pathname !== '/register' && (
+                          <Button asChild className="w-full">
+                            <Link to="/register">Sign Up</Link>
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </nav>
               </SheetContent>

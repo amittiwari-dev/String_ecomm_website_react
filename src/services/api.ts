@@ -7,6 +7,38 @@ interface ApiResponse<T> {
   message?: string;
 }
 
+// Authentication Types
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+  password_confirmation: string;
+}
+
+export interface AuthResponse {
+  user: User;
+  token: string;
+  message?: string;
+}
+
+export interface ErrorResponse {
+  message: string;
+  errors?: Record<string, string[]>;
+}
+
 // Book Service
 export const BookService = {
   // Get all books with optional filters
@@ -227,4 +259,139 @@ export const SearchService = {
       status: 200
     };
   }
+};
+
+// Get API base URL from environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+
+// Import authenticatedFetch for global 401 handling
+import { authenticatedFetch } from '../lib/auth';
+
+// Authentication Service
+export const AuthService = {
+  // Register a new user
+  register: async (data: RegisterRequest): Promise<AuthResponse> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(data),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        // Handle validation errors or other errors
+        if (response.status === 422 && responseData.errors) {
+          // Format validation errors
+          const errorMessages = Object.entries(responseData.errors)
+            .map(([field, messages]) => `${field}: ${(messages as string[]).join(', ')}`)
+            .join('; ');
+          throw new Error(errorMessages);
+        }
+        throw new Error(responseData.message || 'Registration failed');
+      }
+
+      return responseData;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Login an existing user
+  login: async (data: LoginRequest): Promise<AuthResponse> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(data),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        // Handle authentication errors
+        if (response.status === 401) {
+          throw new Error('Invalid email or password');
+        }
+        if (response.status === 422 && responseData.errors) {
+          // Format validation errors
+          const errorMessages = Object.entries(responseData.errors)
+            .map(([field, messages]) => `${field}: ${(messages as string[]).join(', ')}`)
+            .join('; ');
+          throw new Error(errorMessages);
+        }
+        throw new Error(responseData.message || 'Login failed');
+      }
+
+      return responseData;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Logout the current user
+  logout: async (token: string): Promise<void> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+      });
+
+      if (!response.ok && response.status !== 401) {
+        // 401 is acceptable for logout (token might be expired)
+        const responseData = await response.json();
+        throw new Error(responseData.message || 'Logout failed');
+      }
+    } catch (error) {
+      // Logout should not throw errors to the user
+      // Even if the API call fails, we'll clear local state
+      console.error('Logout error:', error);
+    }
+  },
+
+  // Get current authenticated user
+  getCurrentUser: async (token: string): Promise<User> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auth/me`, {
+        method: 'GET',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Session expired. Please login again.');
+        }
+        throw new Error(responseData.message || 'Failed to fetch user data');
+      }
+
+      return responseData.user || responseData;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
 };

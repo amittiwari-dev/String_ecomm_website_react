@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import { OrderService } from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,13 +34,14 @@ const checkoutSchema = z.object({
   state: z.string().min(2, 'State is required'),
   zipCode: z.string().min(5, 'ZIP code is required'),
   country: z.string().min(2, 'Country is required'),
-  paymentMethod: z.enum(['credit-card', 'debit-card', 'upi', 'net-banking']),
+  paymentMethod: z.enum(['credit_card', 'debit_card', 'paypal', 'cash_on_delivery']),
 });
 
 type CheckoutForm = z.infer<typeof checkoutSchema>;
 
 const Checkout = () => {
   const { state: cart, clearCart } = useCart();
+  const { state: authState } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderTotal, setOrderTotal] = useState(0);
@@ -47,9 +49,28 @@ const Checkout = () => {
   const form = useForm<CheckoutForm>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
-      paymentMethod: 'credit-card',
+      paymentMethod: 'credit_card',
     },
   });
+
+  // Check authentication on page load
+  useEffect(() => {
+    // Check if user is authenticated
+    if (!authState.isAuthenticated) {
+      navigate('/login', { state: { from: '/checkout' } });
+      return;
+    }
+    // Cart is already loaded by CartContext, no need to fetch again
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  // Redirect to cart if cart is empty after loading
+  useEffect(() => {
+    if (!cart.isLoading && cart.items.length === 0) {
+      toast.error('Your cart is empty');
+      navigate('/cart');
+    }
+  }, [cart.isLoading, cart.items.length, navigate]);
 
   useEffect(() => {
     // Calculate order total including taxes and shipping
@@ -63,78 +84,121 @@ const Checkout = () => {
   const onSubmit = async (data: CheckoutForm) => {
     if (isSubmitting) return;
     
-    setIsSubmitting(true);
-    try {
-      // Show processing toast
-      toast.loading('Processing your order...');
+    // Validate user is authenticated
+    if (!authState.isAuthenticated || !authState.token) {
+      toast.error('Please login to complete checkout');
+      navigate('/login', { state: { from: '/checkout' } });
+      return;
+    }
 
-      const orderDetails = {
-        items: cart.items.map(item => ({
-          bookId: item.book.id,
-          quantity: item.quantity,
-        })),
-        shippingAddress: {
-          fullName: data.fullName,
-          address: data.address,
-          city: data.city,
-          state: data.state,
-          zipCode: data.zipCode,
-          country: data.country,
-        },
-        paymentMethod: data.paymentMethod,
-        customerEmail: data.email,
-        customerPhone: data.phone
+    // Validate cart is not empty
+    if (cart.items.length === 0) {
+      toast.error('Your cart is empty');
+      navigate('/cart');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    const loadingToastId = toast.loading('Processing your order...');
+
+    try {
+      // Prepare order data for API - use flat structure matching backend expectations
+      const orderData = {
+        shipping_name: data.fullName,
+        shipping_email: data.email,
+        shipping_phone: data.phone,
+        shipping_address: data.address,
+        shipping_city: data.city,
+        shipping_state: data.state,
+        shipping_zip: data.zipCode,
+        shipping_country: data.country,
+        payment_method: data.paymentMethod,
       };
 
-      const response = await OrderService.placeOrder(orderDetails);
+      // Call API to create order
+      const order = await OrderService.createOrder(authState.token, orderData);
 
-      if (response.status === 200 && response.data) {
-        // Save order details for persistence
-        const orderData = {
-          orderId: response.data.id,
-          orderDetails: {
-            ...response.data,
-            items: cart.items,
-            total: orderTotal
-          },
-          timestamp: new Date().toISOString()
-        };
-        
-        localStorage.setItem('lastOrder', JSON.stringify(orderData));
-        
-        // Clear the cart and form
-        clearCart();
-        form.reset();
-        
-        // Dismiss loading toast and show success
-        toast.dismiss();
-        toast.success('🎉 Order placed successfully! Redirecting to confirmation page...');
-        
-        // Add a small delay before navigation to ensure toast is visible
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // Navigate to confirmation page
-        navigate('/order-confirmation', { 
-          state: orderData,
-          replace: true // Prevent going back to checkout
-        });
-      } else {
-        throw new Error('Invalid response from server');
-      }
+      // Clear the cart after successful order
+      clearCart();
+      form.reset();
+      
+      // Dismiss loading toast and show success
+      toast.dismiss(loadingToastId);
+      toast.success('🎉 Order placed successfully!');
+      
+      // Navigate to order confirmation page with order details
+      navigate('/order-confirmation', { 
+        state: { 
+          orderId: order.id,
+          orderNumber: order.order_number,
+          order: order
+        },
+        replace: true // Prevent going back to checkout
+      });
     } catch (error) {
       console.error('Error placing order:', error);
-      toast.dismiss();
-      toast.error('Failed to place order. Please try again.', {
-        description: 'There was a problem processing your order. Please check your details and try again.',
-        duration: 5000,
-      });
+      toast.dismiss(loadingToastId);
+      
+      // Handle different error types
+      const errorMessage = error instanceof Error ? error.message : 'Failed to place order';
+      
+      // Check if it's a validation error (422)
+      if (errorMessage.includes(':')) {
+        // Display validation errors
+        toast.error('Please check your information', {
+          description: errorMessage,
+          duration: 7000,
+        });
+      } else if (errorMessage.includes('Session expired') || errorMessage.includes('login')) {
+        // Handle authentication errors
+        toast.error('Session expired', {
+          description: 'Please login again to continue',
+          duration: 5000,
+        });
+        navigate('/login', { state: { from: '/checkout' } });
+      } else if (errorMessage.includes('cart is empty')) {
+        // Handle empty cart error
+        toast.error('Your cart is empty', {
+          description: 'Please add items to your cart before checking out',
+          duration: 5000,
+        });
+        navigate('/cart');
+      } else {
+        // Generic error
+        toast.error('Failed to place order', {
+          description: errorMessage || 'There was a problem processing your order. Please try again.',
+          duration: 5000,
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Show loading state while fetching cart
+  if (cart.isLoading) {
+    return (
+      <>
+        <Toaster 
+          position="top-center"
+          expand={true}
+          richColors
+        />
+        <div className="container mx-auto px-4 py-16">
+          <div className="max-w-3xl mx-auto">
+            <h1 className="text-3xl font-bold mb-8">Checkout</h1>
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="ml-3 text-lg">Loading your cart...</span>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // This check is now handled in useEffect with redirect
   if (cart.items.length === 0) {
-    navigate('/cart');
     return null;
   }
 
@@ -326,20 +390,20 @@ const Checkout = () => {
                           className="flex flex-col space-y-1"
                         >
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="credit-card" id="credit-card" />
-                            <Label htmlFor="credit-card">Credit Card</Label>
+                            <RadioGroupItem value="credit_card" id="credit_card" />
+                            <Label htmlFor="credit_card">Credit Card</Label>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="debit-card" id="debit-card" />
-                            <Label htmlFor="debit-card">Debit Card</Label>
+                            <RadioGroupItem value="debit_card" id="debit_card" />
+                            <Label htmlFor="debit_card">Debit Card</Label>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="upi" id="upi" />
-                            <Label htmlFor="upi">UPI</Label>
+                            <RadioGroupItem value="paypal" id="paypal" />
+                            <Label htmlFor="paypal">PayPal</Label>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="net-banking" id="net-banking" />
-                            <Label htmlFor="net-banking">Net Banking</Label>
+                            <RadioGroupItem value="cash_on_delivery" id="cash_on_delivery" />
+                            <Label htmlFor="cash_on_delivery">Cash on Delivery</Label>
                           </div>
                         </RadioGroup>
                       </FormControl>

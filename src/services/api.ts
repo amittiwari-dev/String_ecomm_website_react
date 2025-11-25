@@ -1,4 +1,11 @@
 import { Book, books } from '../data/mockData';
+import { ApiError, handleApiError } from '../lib/errorHandler';
+
+// Get API base URL from environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+
+// Import authenticatedFetch for global 401 handling
+import { authenticatedFetch } from '../lib/auth';
 
 // Interface for API responses
 interface ApiResponse<T> {
@@ -38,6 +45,121 @@ export interface ErrorResponse {
   message: string;
   errors?: Record<string, string[]>;
 }
+
+// Cart Service Types
+export interface CartItem {
+  id: string;
+  cart_id: string;
+  product_id: string;
+  quantity: number;
+  price: number;
+  product?: {
+    id: string;
+    title: string;
+    price: number;
+    images: string[];
+    authors: Array<{ name: string }>;
+  };
+}
+
+export interface Cart {
+  id: string;
+  user_id: string;
+  items: CartItem[];
+  subtotal: number;
+  tax: number;
+  shipping_cost: number;
+  total: number;
+}
+
+export interface GuestCartItem {
+  productId: string;
+  quantity: number;
+}
+
+// Order Service Types
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  price: number;
+  product_name: string;
+  product_image: string;
+}
+
+export interface OrderData {
+  shipping_name: string;
+  shipping_email: string;
+  shipping_phone: string;
+  shipping_address: string;
+  shipping_city: string;
+  shipping_state: string;
+  shipping_zip: string;
+  shipping_country: string;
+  payment_method: string;
+}
+
+export interface OrderResponse {
+  id: string;
+  order_number: string;
+  user_id: string;
+  status: string;
+  subtotal: number;
+  tax: number;
+  shipping_cost: number;
+  total: number;
+  shipping_name: string;
+  shipping_email: string;
+  shipping_phone: string;
+  shipping_address: string;
+  shipping_city: string;
+  shipping_state: string;
+  shipping_zip: string;
+  shipping_country: string;
+  payment_method: string;
+  items: OrderItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaginatedOrders {
+  data: OrderResponse[];
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
+// Profile Service Types
+export interface ProfileData {
+  name: string;
+  email: string;
+}
+
+export interface ProfileResponse extends User {
+  total_orders?: number;
+  total_spent?: number;
+  pending_orders?: number;
+  created_at?: string;
+}
+
+/**
+ * Helper function to handle API responses with consistent error handling
+ */
+const handleApiResponse = async <T>(response: Response): Promise<T> => {
+  const responseData = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      responseData.message || 'Request failed',
+      response.status,
+      responseData.errors
+    );
+  }
+
+  return responseData;
+};
 
 // Book Service
 export const BookService = {
@@ -187,52 +309,259 @@ export const BookService = {
   }
 };
 
-// Order Service Interfaces
-interface OrderDetails {
-  items: Array<{ bookId: string; quantity: number }>;
-  shippingAddress: {
-    fullName: string;
-    address: string;
-    city: string;
-    state: string;
-    zipCode: string;
-    country: string;
-  };
-  paymentMethod: string;
-}
+// Cart Service
+export const CartService = {
+  // Get current user's cart
+  getCart: async (token: string): Promise<Cart> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}cart`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
 
-interface Order extends OrderDetails {
-  id: string;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered';
-  total: number;
-  createdAt: string;
-}
+      const data = await handleApiResponse<any>(response);
+      return data.cart || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
 
+  // Add item to cart
+  addToCart: async (token: string, productId: string, quantity: number): Promise<Cart> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}cart`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          product_id: productId,
+          quantity,
+        }),
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.cart || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Update cart item quantity
+  updateCartItem: async (token: string, itemId: string, quantity: number): Promise<Cart> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}cart/${itemId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ quantity }),
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.cart || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Remove item from cart
+  removeCartItem: async (token: string, itemId: string): Promise<Cart> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}cart/${itemId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.cart || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Clear cart (remove all items)
+  clearCart: async (token: string): Promise<void> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}cart/clear`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok && response.status !== 404) {
+        const responseData = await response.json();
+        throw new Error(responseData.message || 'Failed to clear cart');
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Merge guest cart with user cart
+  mergeGuestCart: async (token: string, items: GuestCartItem[]): Promise<Cart> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}cart/merge`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ items }),
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.cart || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+};
+
+// Order Service
 export const OrderService = {
-  // Place a new order
-  placeOrder: async (orderDetails: OrderDetails): Promise<ApiResponse<Order>> => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Calculate total
-    const total = orderDetails.items.reduce((sum, item) => {
-      const book = books.find(b => b.id === item.bookId);
-      return sum + (book?.price || 0) * item.quantity;
-    }, 0);
+  // Create a new order
+  createOrder: async (token: string, orderData: OrderData): Promise<OrderResponse> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}orders`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(orderData),
+      });
 
-    const order: Order = {
-      ...orderDetails,
-      id: Math.random().toString(36).substr(2, 9),
-      status: 'pending',
-      total,
-      createdAt: new Date().toISOString()
-    };
+      const data = await handleApiResponse<any>(response);
+      return data.order || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
 
-    return {
-      data: order,
-      status: 200,
-      message: 'Order placed successfully'
-    };
-  }
+  // Get user's orders with pagination
+  getOrders: async (token: string, page: number = 1): Promise<PaginatedOrders> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}orders?page=${page}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.orders || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Get specific order by ID
+  getOrderById: async (token: string, orderId: string): Promise<OrderResponse> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}orders/${orderId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.order || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+};
+
+// Profile Service
+export const ProfileService = {
+  // Get user profile with statistics
+  getProfile: async (token: string): Promise<ProfileResponse> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}profile`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      const data = await handleApiResponse<any>(response);
+      return data.profile || data;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
+
+  // Update user profile
+  updateProfile: async (token: string, data: ProfileData): Promise<ProfileResponse> => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}profile`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      const responseData = await handleApiResponse<any>(response);
+      return responseData.profile || responseData;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+  },
 };
 
 // Search Service
@@ -261,18 +590,12 @@ export const SearchService = {
   }
 };
 
-// Get API base URL from environment variable
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-
-// Import authenticatedFetch for global 401 handling
-import { authenticatedFetch } from '../lib/auth';
-
 // Authentication Service
 export const AuthService = {
   // Register a new user
   register: async (data: RegisterRequest): Promise<AuthResponse> => {
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/register`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}auth/register`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -281,23 +604,9 @@ export const AuthService = {
         body: JSON.stringify(data),
       });
 
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        // Handle validation errors or other errors
-        if (response.status === 422 && responseData.errors) {
-          // Format validation errors
-          const errorMessages = Object.entries(responseData.errors)
-            .map(([field, messages]) => `${field}: ${(messages as string[]).join(', ')}`)
-            .join('; ');
-          throw new Error(errorMessages);
-        }
-        throw new Error(responseData.message || 'Registration failed');
-      }
-
-      return responseData;
+      return await handleApiResponse<AuthResponse>(response);
     } catch (error) {
-      if (error instanceof Error) {
+      if (error instanceof ApiError) {
         throw error;
       }
       throw new Error('Network error. Please check your connection and try again.');
@@ -307,7 +616,7 @@ export const AuthService = {
   // Login an existing user
   login: async (data: LoginRequest): Promise<AuthResponse> => {
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/login`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}auth/login`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -316,26 +625,13 @@ export const AuthService = {
         body: JSON.stringify(data),
       });
 
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        // Handle authentication errors
-        if (response.status === 401) {
-          throw new Error('Invalid email or password');
-        }
-        if (response.status === 422 && responseData.errors) {
-          // Format validation errors
-          const errorMessages = Object.entries(responseData.errors)
-            .map(([field, messages]) => `${field}: ${(messages as string[]).join(', ')}`)
-            .join('; ');
-          throw new Error(errorMessages);
-        }
-        throw new Error(responseData.message || 'Login failed');
-      }
-
-      return responseData;
+      return await handleApiResponse<AuthResponse>(response);
     } catch (error) {
-      if (error instanceof Error) {
+      if (error instanceof ApiError) {
+        // Customize 401 error message for login
+        if (error.status === 401) {
+          throw new ApiError('Invalid email or password', 401);
+        }
         throw error;
       }
       throw new Error('Network error. Please check your connection and try again.');
@@ -345,7 +641,7 @@ export const AuthService = {
   // Logout the current user
   logout: async (token: string): Promise<void> => {
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/logout`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}auth/logout`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -369,7 +665,7 @@ export const AuthService = {
   // Get current authenticated user
   getCurrentUser: async (token: string): Promise<User> => {
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/me`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}auth/me`, {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -377,18 +673,10 @@ export const AuthService = {
         },
       });
 
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Session expired. Please login again.');
-        }
-        throw new Error(responseData.message || 'Failed to fetch user data');
-      }
-
-      return responseData.user || responseData;
+      const data = await handleApiResponse<any>(response);
+      return data.user || data;
     } catch (error) {
-      if (error instanceof Error) {
+      if (error instanceof ApiError) {
         throw error;
       }
       throw new Error('Network error. Please check your connection and try again.');

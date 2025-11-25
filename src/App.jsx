@@ -3,14 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster as Sonner } from "sonner";
 import { Toaster } from "@/components/ui/toaster";
-import { CartProvider } from "./context/CartContext";
+import { CartProvider, useCart } from "./context/CartContext";
 import { AuthProvider } from "./context/AuthContext";
-
-// Initialize cart from localStorage if available
-const getInitialCart = () => {
-  const savedCart = localStorage.getItem('bookstore_cart');
-  return savedCart ? JSON.parse(savedCart) : { items: [], total: 0 };
-};
 
 import Authors from "./pages/Authors";
 import PublishWithUs from "./pages/PublishWithUs";
@@ -26,9 +20,22 @@ import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import Register from "./pages/Register";
 import Login from "./pages/Login";
+import Profile from "./pages/MyProfile";
+import OrderHistory from "./pages/OrderHistory";
 
 // ✅ Create queryClient
 const queryClient = new QueryClient();
+
+// Wrapper component to connect AuthProvider with CartContext
+function AuthWithCartSync({ children }) {
+  const { syncCart } = useCart();
+  
+  return (
+    <AuthProvider onCartSync={syncCart}>
+      {children}
+    </AuthProvider>
+  );
+}
 
 function App() {
   // ✅ console.log outside JSX
@@ -37,8 +44,8 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <CartProvider>
+        <CartProvider>
+          <AuthWithCartSync>
             <Toaster />
             <Sonner />
             <BrowserRouter>
@@ -58,14 +65,17 @@ function App() {
                     <Route path="/order-confirmation" element={<OrderConfirmation />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/login" element={<Login />} />
+                    <Route path="/profile" element={<Profile />} />
+                    <Route path="/orders" element={<OrderHistory />} />
                     <Route path="*" element={<NotFound />} />
+
                   </Routes>
                 </main>
                 <Footer />
               </div>
             </BrowserRouter>
-          </CartProvider>
-        </AuthProvider>
+          </AuthWithCartSync>
+        </CartProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

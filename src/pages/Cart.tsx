@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Trash2, Minus, Plus, ShoppingBag } from 'lucide-react';
+import { Trash2, Minus, Plus, ShoppingBag, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useCart } from '../context/CartContext';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +17,7 @@ import { cn } from '@/lib/utils';
 const CartPage = () => {
   const { state: cart, removeFromCart, updateQuantity } = useCart();
   const navigate = useNavigate();
+  const [loadingItems, setLoadingItems] = React.useState<Set<string>>(new Set());
 
   // Optional: Fetch cart data from API on component mount
   useEffect(() => {
@@ -34,29 +36,33 @@ const CartPage = () => {
 
   // Handler for updating quantity
   const handleUpdateQuantity = async (bookId: string, newQuantity: number) => {
+    setLoadingItems(prev => new Set(prev).add(bookId));
     try {
-      // API call example:
-      // await fetch(`/api/cart/update/${bookId}`, {
-      //   method: 'PUT',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ quantity: newQuantity })
-      // });
-      updateQuantity(bookId, newQuantity);
+      await updateQuantity(bookId, newQuantity);
     } catch (error) {
       console.error('Error updating quantity:', error);
+    } finally {
+      setLoadingItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(bookId);
+        return newSet;
+      });
     }
   };
 
   // Handler for removing item
   const handleRemoveItem = async (bookId: string) => {
+    setLoadingItems(prev => new Set(prev).add(bookId));
     try {
-      // API call example:
-      // await fetch(`/api/cart/remove/${bookId}`, {
-      //   method: 'DELETE'
-      // });
-      removeFromCart(bookId);
+      await removeFromCart(bookId);
     } catch (error) {
       console.error('Error removing item:', error);
+    } finally {
+      setLoadingItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(bookId);
+        return newSet;
+      });
     }
   };
 
@@ -65,6 +71,43 @@ const CartPage = () => {
     // You might want to validate cart or user session here
     navigate('/checkout');
   };
+
+  // Show loading state while fetching cart
+  if (cart.isLoading) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <h1 className="text-3xl font-bold mb-8">Shopping Cart</h1>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex gap-4 p-4 bg-white rounded-lg shadow">
+                <Skeleton className="w-24 h-32 rounded" />
+                <div className="flex-1 space-y-3">
+                  <Skeleton className="h-6 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-1/3" />
+                  <div className="flex justify-between items-center mt-4">
+                    <Skeleton className="h-10 w-32" />
+                    <Skeleton className="h-6 w-20" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-lg shadow p-6">
+              <Skeleton className="h-6 w-32 mb-4" />
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+              </div>
+              <Skeleton className="h-10 w-full mt-6" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (cart.items.length === 0) {
     return (
@@ -122,10 +165,15 @@ const CartPage = () => {
                   </div>
                   <button
                     onClick={() => handleRemoveItem(item.book.id)}
-                    className="text-red-500 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50"
+                    className="text-red-500 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Remove item"
+                    disabled={loadingItems.has(item.book.id)}
                   >
-                    <Trash2 className="h-5 w-5" />
+                    {loadingItems.has(item.book.id) ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-5 w-5" />
+                    )}
                   </button>
                 </div>
 
@@ -142,21 +190,30 @@ const CartPage = () => {
                     <button
                       onClick={() => handleUpdateQuantity(item.book.id, Math.max(1, item.quantity - 1))}
                       className={cn(
-                        "p-2 rounded-full hover:bg-gray-100 transition-colors",
+                        "p-2 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                         item.quantity <= 1 && "text-gray-400 cursor-not-allowed"
                       )}
-                      disabled={item.quantity <= 1}
+                      disabled={item.quantity <= 1 || loadingItems.has(item.book.id)}
                       aria-label="Decrease quantity"
                     >
-                      <Minus className="h-4 w-4" />
+                      {loadingItems.has(item.book.id) ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Minus className="h-4 w-4" />
+                      )}
                     </button>
                     <span className="w-8 text-center font-medium">{item.quantity}</span>
                     <button
                       onClick={() => handleUpdateQuantity(item.book.id, item.quantity + 1)}
-                      className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                      className="p-2 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Increase quantity"
+                      disabled={loadingItems.has(item.book.id)}
                     >
-                      <Plus className="h-4 w-4" />
+                      {loadingItems.has(item.book.id) ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
 

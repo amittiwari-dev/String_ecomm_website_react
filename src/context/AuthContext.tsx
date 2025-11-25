@@ -16,6 +16,9 @@ import {
 // API Base URL - should match your backend
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
+// Import cart sync function type
+type CartSyncFunction = () => Promise<void>;
+
 // Auth Context Type
 interface AuthContextType {
   state: AuthState;
@@ -86,10 +89,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Auth Provider Props
 interface AuthProviderProps {
   children: ReactNode;
+  onCartSync?: CartSyncFunction;
 }
 
 // Auth Provider Component
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
   /**
@@ -127,6 +131,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           token: data.token,
         },
       });
+
+      // Sync cart after successful login - ensure this completes before returning
+      if (onCartSync) {
+        try {
+          await onCartSync();
+        } catch (error) {
+          console.error('Failed to sync cart after login:', error);
+          // Continue even if cart sync fails - user is still logged in
+        }
+      }
     } catch (error) {
       dispatch({ type: 'AUTH_FAILURE' });
       throw error;
@@ -177,6 +191,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           token: data.token,
         },
       });
+
+      // Sync cart after successful registration - ensure this completes before returning
+      if (onCartSync) {
+        try {
+          await onCartSync();
+        } catch (error) {
+          console.error('Failed to sync cart after registration:', error);
+          // Continue even if cart sync fails - user is still registered and logged in
+        }
+      }
     } catch (error) {
       dispatch({ type: 'AUTH_FAILURE' });
       throw error;
@@ -258,7 +282,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Check authentication on mount
     checkAuth();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only run once on mount
 
   const value: AuthContextType = {
     state,

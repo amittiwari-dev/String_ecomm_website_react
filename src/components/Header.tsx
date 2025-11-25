@@ -146,12 +146,12 @@ const Header = () => {
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem asChild>
                     <Link to="/profile" className="cursor-pointer">
-                      Profile
+                      My Profile
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link to="/orders" className="cursor-pointer">
-                      Orders
+                      My Orders
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -219,13 +219,13 @@ const Header = () => {
                           to="/profile"
                           className="text-base font-medium hover:text-primary transition-colors px-2"
                         >
-                          Profile
+                          My Profile
                         </Link>
                         <Link
                           to="/orders"
                           className="text-base font-medium hover:text-primary transition-colors px-2"
                         >
-                          Orders
+                          My Orders
                         </Link>
                         <Button
                           variant="destructive"

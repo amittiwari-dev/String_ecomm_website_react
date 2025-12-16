@@ -1,12 +1,17 @@
-import { useState, useEffect } from 'react';
-import { BookIcon, ShoppingCart, Star } from "lucide-react";
+import { useState, useEffect, useMemo } from 'react';
+import { ShoppingCart, Star, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from '@/hooks/use-toast';
 import { Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { toast as sonnerToast } from "sonner";
 import { Book } from '@/data/mockData';
+import { useUrlStringState, useUrlNumberState } from '@/hooks/useUrlState';
+import { AllBooksPageSkeleton } from '@/components/ui/book-skeleton';
+import { ProgressiveBookGrid } from '@/components/ProgressiveBookGrid';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const mapApiBookToBook = (api: any): Book => {
@@ -48,12 +53,29 @@ const mapApiBookToBook = (api: any): Book => {
 const AllBooks = () => {
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [useProgressiveLoading, setUseProgressiveLoading] = useState(false);
   const { toast } = useToast();
   const { addToCart } = useCart();
+
+  // URL state for search and filters
+  const [searchTerm, setSearchTerm] = useUrlStringState('search', '');
+  const [sortBy, setSortBy] = useUrlStringState('sort', 'title');
+  const [categoryFilter, setCategoryFilter] = useUrlStringState('category', '');
+  const [minPrice, setMinPrice] = useUrlNumberState('minPrice', 0);
+  const [maxPrice, setMaxPrice] = useUrlNumberState('maxPrice', 0);
 
   useEffect(() => {
     const fetchBooks = async () => {
       try {
+        // In development mode, use mock data
+        if (import.meta.env.DEV) {
+          // Import mock data dynamically
+          const { books: mockBooks } = await import('@/data/mockData');
+          setBooks(mockBooks);
+          setLoading(false);
+          return;
+        }
+
         const response = await fetch(`${API_BASE_URL}new-books`);
         if (!response.ok) throw new Error('Failed to fetch books');
 
@@ -66,11 +88,17 @@ const AllBooks = () => {
         }
       } catch (error) {
         console.error(error);
-        toast({
-          title: "Error",
-          description: "Failed to load books.",
-          variant: "destructive",
-        });
+        // Fallback to mock data on error
+        try {
+          const { books: mockBooks } = await import('@/data/mockData');
+          setBooks(mockBooks);
+        } catch (fallbackError) {
+          toast({
+            title: "Error",
+            description: "Failed to load books.",
+            variant: "destructive",
+          });
+        }
       } finally {
         setLoading(false);
       }
@@ -79,101 +107,446 @@ const AllBooks = () => {
     fetchBooks();
   }, [toast]);
 
+  // Filter and sort books based on URL state
+  const filteredAndSortedBooks = useMemo(() => {
+    let filtered = books;
+
+    // Filter by search term
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(book => {
+        // Handle both API format and mock data format
+        const title = book.title || book.product_name || '';
+        const description = book.description || book.product_description || '';
+        const authorName = book.authors?.[0]?.name || book.author_name || '';
+        
+        return (
+          title.toLowerCase().includes(searchLower) ||
+          authorName.toLowerCase().includes(searchLower) ||
+          description.toLowerCase().includes(searchLower)
+        );
+      });
+    }
+
+    // Filter by category using fixed category mapping
+    if (categoryFilter) {
+      filtered = filtered.filter(book => {
+        // Map category filter to category IDs
+        const categoryMap = {
+          'Books on Shirdi Sai Baba': '2',
+          'Other Religious Books': '3',
+          'Coffee Table Books and Paperbacks': '4', 
+          'Text Books': '5'
+        };
+        
+        const expectedCategoryId = categoryMap[categoryFilter];
+        const bookCategoryId = book.category_id || book.category?.id;
+        
+        return bookCategoryId === expectedCategoryId;
+      });
+    }
+
+    // Filter by price range
+    if (minPrice > 0 || maxPrice > 0) {
+      filtered = filtered.filter(book => {
+        const price = Number(book.price) || 0;
+        const minCheck = minPrice > 0 ? price >= minPrice : true;
+        const maxCheck = maxPrice > 0 ? price <= maxPrice : true;
+        return minCheck && maxCheck;
+      });
+    }
+
+    // Sort books
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'title':
+          const titleA = a.title || a.product_name || '';
+          const titleB = b.title || b.product_name || '';
+          return titleA.localeCompare(titleB);
+        case 'author':
+          const authorA = a.authors?.[0]?.name || a.author_name || '';
+          const authorB = b.authors?.[0]?.name || b.author_name || '';
+          return authorA.localeCompare(authorB);
+        case 'price-low':
+          return (Number(a.price) || 0) - (Number(b.price) || 0);
+        case 'price-high':
+          return (Number(b.price) || 0) - (Number(a.price) || 0);
+        case 'newest':
+          const dateA = new Date(a.publication_date || 0).getTime();
+          const dateB = new Date(b.publication_date || 0).getTime();
+          return dateB - dateA;
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [books, searchTerm, sortBy, categoryFilter, minPrice, maxPrice]);
+
+  // Fixed categories like Index page - no dynamic loading
+  const availableCategories = useMemo(() => {
+    return [
+      'Books on Shirdi Sai Baba',
+      'Other Religious Books', 
+      'Coffee Table Books and Paperbacks',
+      'Text Books'
+    ];
+  }, []);
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setSortBy('title');
+    setCategoryFilter('');
+    setMinPrice(0);
+    setMaxPrice(0);
+  };
+
+  const hasActiveFilters = searchTerm || categoryFilter || sortBy !== 'title' || minPrice > 0 || maxPrice > 0;
+
   if (loading) {
-    return <div className="text-center py-10 text-gray-500">Loading books...</div>;
+    return <AllBooksPageSkeleton />;
   }
 
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold mb-4">Latest Releases Books</h1>
+      <div className="text-center mb-8">
+        <h1 className="text-4xl font-bold mb-4">Our Books</h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Explore our extensive collection of books across various genres and authors.
+          Explore our collection of spiritual and religious books across different categories.
         </p>
       </div>
 
-      {/* Books Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-        {books.length > 0 ? (
-          books.map((book) => {
-            const mapped = mapApiBookToBook(book);
-            return (
-              <div
-                key={mapped.id}
-                className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
-              >
-                <Link to={`/book/${mapped.id}-${mapped.slug}`} state={{ book: mapped }}>
-                  <img
-                    src={mapped.images[0] || "/img/book-categori/book-placeholder.png"}
-                    alt={mapped.title}
-                    className="w-full h-56 object-cover rounded-md mb-3"
-                    onError={(e) => {
-                      e.currentTarget.src = '/img/book-categori/book-placeholder.png';
-                    }}
-                  />
-                </Link>
+      {/* Search and Filters */}
+      <div className="mb-8 space-y-4">
+        {/* Search Bar */}
+        <div className="relative max-w-md mx-auto">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search books, authors, or descriptions..."
+            className="pl-10"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
 
-                <Link
-                  to={`/book/${mapped.id}-${mapped.slug}`}
-                  state={{ book: mapped }}
-                  className="font-semibold line-clamp-2 hover:text-primary transition-colors"
-                >
-                  {mapped.title}
-                </Link>
+        {/* Filters Row */}
+        <div className="flex flex-wrap gap-4 justify-center items-center">
+          {/* Sort By */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Sort by:</label>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="title">Title A-Z</SelectItem>
+                <SelectItem value="author">Author A-Z</SelectItem>
+                <SelectItem value="price-low">Price: Low to High</SelectItem>
+                <SelectItem value="price-high">Price: High to Low</SelectItem>
+                <SelectItem value="newest">Newest First</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-                <p className="text-sm text-gray-500">by {mapped.authors?.[0]?.name || 'Unknown Author'}</p>
+          {/* Category Filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Category:</label>
+            <Select value={categoryFilter || 'all'} onValueChange={(value) => setCategoryFilter(value === 'all' ? '' : value)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {availableCategories.map(category => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-                {/* Rating */}
-                <div className="flex items-center space-x-1 text-yellow-400">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`h-3 w-3 ${i < 4 ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
-                    />
-                  ))}
-                  <span className="text-xs text-gray-500">(4.0)</span>
-                </div>
+          {/* Price Range */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Price:</label>
+            <Input
+              type="number"
+              placeholder="Min ₹"
+              className="w-20"
+              value={minPrice || ''}
+              onChange={(e) => setMinPrice(Number(e.target.value) || 0)}
+            />
+            <span className="text-sm text-muted-foreground">to</span>
+            <Input
+              type="number"
+              placeholder="Max ₹"
+              className="w-20"
+              value={maxPrice || ''}
+              onChange={(e) => setMaxPrice(Number(e.target.value) || 0)}
+            />
+          </div>
 
-                {/* Category, Subcategory, Pages */}
-                <div className="flex flex-wrap gap-1 text-xs text-gray-500">
-                  {book.category?.category_name && (
-                    <Badge variant="outline">{book.category.category_name}</Badge>
-                  )}
-                  {book.subcategory?.sub_category_name && (
-                    <Badge variant="outline">{book.subcategory.sub_category_name}</Badge>
-                  )}
-                  {book.total_pages > 0 && (
-                    <Badge variant="outline">{book.total_pages} pages</Badge>
-                  )}
-                </div>
+          {/* Clear Filters */}
+          {hasActiveFilters && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              className="flex items-center gap-2"
+            >
+              <X className="h-4 w-4" />
+              Clear Filters
+            </Button>
+          )}
+        </div>
 
-                {/* Price + Add to Cart */}
-                <div className="pt-2 flex justify-between items-center">
-                  <div>
-                    <p className="text-lg font-bold text-red-600">₹{parseFloat(String(mapped.price)).toFixed(2)}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      addToCart(mapped);
-                      sonnerToast.success(`${mapped.title} added to cart`);
-                    }}
-                    className="shrink-0"
-                  >
-                    <ShoppingCart className="h-3 w-3 mr-1" />
-                    Add to Cart
-                  </Button>
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="col-span-full text-center text-gray-500">
-            No books found.
+        {/* Active Filters Display */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap gap-2 justify-center">
+            {searchTerm && (
+              <Badge variant="secondary" className="flex items-center gap-1">
+                Search: "{searchTerm}"
+                <button onClick={() => setSearchTerm('')} className="ml-1 hover:bg-gray-300 rounded-full">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
+            {categoryFilter && (
+              <Badge variant="secondary" className="flex items-center gap-1">
+                Category: {categoryFilter}
+                <button onClick={() => setCategoryFilter('')} className="ml-1 hover:bg-gray-300 rounded-full">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
+            {(minPrice > 0 || maxPrice > 0) && (
+              <Badge variant="secondary" className="flex items-center gap-1">
+                Price: ₹{minPrice || 0} - ₹{maxPrice || '∞'}
+                <button onClick={() => { setMinPrice(0); setMaxPrice(0); }} className="ml-1 hover:bg-gray-300 rounded-full">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
           </div>
         )}
+
+        {/* Results Count */}
+        <div className="text-center text-sm text-muted-foreground">
+          Showing {filteredAndSortedBooks.length} of {books.length} books
+        </div>
       </div>
+
+      {/* Progressive Loading Toggle */}
+      <div className="text-center mb-4">
+        <Button
+          variant="outline"
+          onClick={() => setUseProgressiveLoading(!useProgressiveLoading)}
+          className="mb-4"
+        >
+          {useProgressiveLoading ? 'Use Standard Loading' : 'Use Progressive Loading'}
+        </Button>
+      </div>
+
+      {/* Books by Categories */}
+      {useProgressiveLoading ? (
+        <ProgressiveBookGrid
+          searchTerm={searchTerm}
+          sortBy={sortBy}
+          categoryFilter={categoryFilter}
+          minPrice={minPrice}
+          maxPrice={maxPrice}
+        />
+      ) : (
+        <div className="space-y-16">
+          {/* Show filtered books if there are active filters */}
+          {hasActiveFilters ? (
+            <div>
+              <h2 className="text-2xl font-bold mb-6">Search Results</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+                {filteredAndSortedBooks.length > 0 ? (
+                  filteredAndSortedBooks.map((book) => {
+                    const bookData = book.title ? book : mapApiBookToBook(book);
+                    
+                    return (
+                      <div
+                        key={bookData.id}
+                        className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
+                      >
+                        <Link to={`/book/${bookData.slug}`} state={{ book: bookData }}>
+                          <img
+                            src={bookData.images?.[0] || "/img/book-categori/book-placeholder.png"}
+                            alt={bookData.title}
+                            className="w-full h-56 object-cover rounded-md mb-3"
+                            onError={(e) => {
+                              e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+                            }}
+                          />
+                        </Link>
+
+                        <Link
+                          to={`/book/${bookData.slug}`}
+                          state={{ book: bookData }}
+                          className="font-semibold line-clamp-2 hover:text-primary transition-colors"
+                        >
+                          {bookData.title}
+                        </Link>
+
+                        <p className="text-sm text-gray-500">by {bookData.authors?.[0]?.name || 'Unknown Author'}</p>
+
+                        <div className="flex items-center space-x-1 text-yellow-400">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`h-3 w-3 ${i < Math.floor(bookData.rating || 4) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                            />
+                          ))}
+                          <span className="text-xs text-gray-500">({bookData.rating || 4.0})</span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1 text-xs text-gray-500">
+                          <Badge variant="outline">{bookData.currency} {bookData.price}</Badge>
+                          {bookData.pages && (
+                            <Badge variant="outline">{bookData.pages} pages</Badge>
+                          )}
+                        </div>
+
+                        <div className="pt-2 flex justify-between items-center">
+                          <div>
+                            <p className="text-lg font-bold text-red-600">₹{parseFloat(String(bookData.price)).toFixed(2)}</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              addToCart(bookData);
+                              sonnerToast.success(`${bookData.title} added to cart`);
+                            }}
+                            className="shrink-0"
+                          >
+                            <ShoppingCart className="h-3 w-3 mr-1" />
+                            Add to Cart
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="col-span-full text-center py-12">
+                    <p className="text-lg text-muted-foreground mb-2">No books match your current filters.</p>
+                    <Button variant="outline" onClick={clearFilters}>
+                      Clear all filters
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Show books by categories when no filters are active */
+            availableCategories.map((categoryName) => {
+              const categoryMap = {
+                'Books on Shirdi Sai Baba': '2',
+                'Other Religious Books': '3',
+                'Coffee Table Books and Paperbacks': '4', 
+                'Text Books': '5'
+              };
+              
+              const categoryId = categoryMap[categoryName];
+              const categoryBooks = books.filter(book => {
+                const bookCategoryId = book.category_id || book.category?.id;
+                return bookCategoryId === categoryId || 
+                       (book.category_id && book.category_id.startsWith(categoryId));
+              }).slice(0, 4); // Show only 4 books per category
+
+              if (categoryBooks.length === 0) return null;
+
+              return (
+                <section key={categoryName} className="scroll-mt-20">
+                  <div className="mb-8 flex justify-between items-center">
+                    <div>
+                      <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">{categoryName}</h2>
+                      <div className="w-16 h-1 bg-primary"></div>
+                    </div>
+                    <Link 
+                      to={`/books?category=${encodeURIComponent(categoryName)}`} 
+                      className="text-primary hover:underline font-medium"
+                    >
+                      View All Books →
+                    </Link>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    {categoryBooks.map((book) => {
+                      const bookData = book.title ? book : mapApiBookToBook(book);
+                      
+                      return (
+                        <div
+                          key={bookData.id}
+                          className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
+                        >
+                          <Link to={`/book/${bookData.slug}`} state={{ book: bookData }}>
+                            <img
+                              src={bookData.images?.[0] || "/img/book-categori/book-placeholder.png"}
+                              alt={bookData.title}
+                              className="w-full h-56 object-cover rounded-md mb-3"
+                              onError={(e) => {
+                                e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+                              }}
+                            />
+                          </Link>
+
+                          <Link
+                            to={`/book/${bookData.slug}`}
+                            state={{ book: bookData }}
+                            className="font-semibold line-clamp-2 hover:text-primary transition-colors"
+                          >
+                            {bookData.title}
+                          </Link>
+
+                          <p className="text-sm text-gray-500">by {bookData.authors?.[0]?.name || 'Unknown Author'}</p>
+
+                          <div className="flex items-center space-x-1 text-yellow-400">
+                            {[...Array(5)].map((_, i) => (
+                              <Star
+                                key={i}
+                                className={`h-3 w-3 ${i < Math.floor(bookData.rating || 4) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                              />
+                            ))}
+                            <span className="text-xs text-gray-500">({bookData.rating || 4.0})</span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1 text-xs text-gray-500">
+                            <Badge variant="outline">{bookData.currency} {bookData.price}</Badge>
+                            {bookData.pages && (
+                              <Badge variant="outline">{bookData.pages} pages</Badge>
+                            )}
+                          </div>
+
+                          <div className="pt-2 flex justify-between items-center">
+                            <div>
+                              <p className="text-lg font-bold text-red-600">₹{parseFloat(String(bookData.price)).toFixed(2)}</p>
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                addToCart(bookData);
+                                sonnerToast.success(`${bookData.title} added to cart`);
+                              }}
+                              className="shrink-0"
+                            >
+                              <ShoppingCart className="h-3 w-3 mr-1" />
+                              Add to Cart
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 };

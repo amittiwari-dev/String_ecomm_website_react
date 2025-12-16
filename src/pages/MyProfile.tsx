@@ -1,81 +1,167 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { ProfileService, ProfileResponse, OrderService, OrderResponse } from '@/services/api';
+import { ProfileService, ProfileResponse, OrderService, OrderResponse, ProfileStatistics } from '@/services/api';
 import { toast } from 'sonner';
-import { Loader2, User as UserIcon, Mail, Calendar, ShoppingBag, DollarSign, Clock, Package } from 'lucide-react';
+import { Loader2, User as UserIcon, Mail, Calendar, ShoppingBag, DollarSign, Clock, Package, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ProfileSkeleton, ProfileErrorState } from '@/components/ui/profile-skeleton';
 
 const MyProfile = () => {
   const { state: authState } = useAuth();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [statistics, setStatistics] = useState<ProfileStatistics | null>(null);
   const [recentOrders, setRecentOrders] = useState<OrderResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', email: '' });
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  // Fetch logged-in profile with statistics
-  const fetchProfile = async () => {
-    setIsLoading(true);
-    try {
-      if (!authState.token) {
-        throw new Error('Please login to view your profile');
-      }
+  // Authentication is handled by RouteWrapper
 
-      const profileData = await ProfileService.getProfile(authState.token);
+  // Fetch logged-in profile with statistics
+  const fetchProfile = async (showToast = true) => {
+    if (!authState.token) {
+      setError('Authentication required. Please log in to view your profile.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Fetch profile and statistics in parallel
+      const [profileData, statisticsData, ordersData] = await Promise.all([
+        ProfileService.getProfile(authState.token),
+        ProfileService.getProfileStatistics(authState.token),
+        OrderService.getOrders(authState.token, 1).catch(() => ({ data: [] })) // Don't fail if orders fail
+      ]);
+
       setProfile(profileData);
+      setStatistics(statisticsData);
       setFormData({
         name: profileData.name,
         email: profileData.email,
       });
 
-      // Fetch recent orders (last 5)
-      const ordersData = await OrderService.getOrders(authState.token, 1);
-      setRecentOrders(ordersData.data.slice(0, 5));
+      // Set recent orders (last 5)
+      if (ordersData.data) {
+        setRecentOrders(ordersData.data.slice(0, 5));
+      }
+
+      if (showToast) {
+        toast.success('Profile loaded successfully');
+      }
     } catch (error: any) {
       console.error('Failed to fetch profile:', error);
-      toast.error('Failed to load profile', {
-        description: error.message,
-      });
+      const errorMessage = error.message || 'Failed to load profile data';
+      setError(errorMessage);
+      
+      if (showToast) {
+        toast.error('Failed to load profile', {
+          description: errorMessage,
+        });
+      }
+
+      // Handle authentication errors
+      if (errorMessage.includes('session has expired') || errorMessage.includes('Authentication required')) {
+        navigate('/login', { replace: true });
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Real-time validation
+  const validateField = (field: string, value: string): string => {
+    switch (field) {
+      case 'name':
+        if (!value.trim()) return 'Name is required';
+        if (value.trim().length < 2) return 'Name must be at least 2 characters';
+        if (value.trim().length > 50) return 'Name must be less than 50 characters';
+        if (!/^[a-zA-Z\s]+$/.test(value.trim())) return 'Name can only contain letters and spaces';
+        return '';
+      case 'email':
+        if (!value.trim()) return 'Email is required';
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Please enter a valid email address';
+        if (value.length > 100) return 'Email must be less than 100 characters';
+        return '';
+      default:
+        return '';
+    }
+  };
+
+  // Handle form field changes with real-time validation
+  const handleFieldChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    
+    // Clear existing error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => ({ ...prev, [field]: '' }));
+    }
+    
+    // Real-time validation (only show errors after user stops typing)
+    const timeoutId = setTimeout(() => {
+      const error = validateField(field, value);
+      if (error) {
+        setValidationErrors(prev => ({ ...prev, [field]: error }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  };
+
+  // Validate entire form
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    const nameError = validateField('name', formData.name);
+    if (nameError) errors.name = nameError;
+    
+    const emailError = validateField('email', formData.email);
+    if (emailError) errors.email = emailError;
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   // Update user profile
   const updateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsUpdating(true);
-    setValidationErrors({});
 
     try {
       if (!authState.token) {
-        throw new Error('Please login to update your profile');
+        toast.error('Please log in to update your profile');
+        navigate('/login', { replace: true });
+        return;
       }
 
-      // Validate form fields
-      const errors: Record<string, string> = {};
-      if (!formData.name.trim()) {
-        errors.name = 'Name is required';
-      }
-      if (!formData.email.trim()) {
-        errors.email = 'Email is required';
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-        errors.email = 'Please enter a valid email address';
+      // Validate form before submission
+      if (!validateForm()) {
+        toast.error('Please fix the errors before submitting');
+        return;
       }
 
-      if (Object.keys(errors).length > 0) {
-        setValidationErrors(errors);
+      // Check if data has actually changed
+      if (profile && formData.name === profile.name && formData.email === profile.email) {
+        toast.info('No changes detected');
+        setIsEditMode(false);
         return;
       }
 
       const updatedProfile = await ProfileService.updateProfile(authState.token, formData);
       setProfile(updatedProfile);
       setIsEditMode(false);
+      setValidationErrors({});
       toast.success('Profile updated successfully!');
+      
+      // Refresh statistics after profile update
+      fetchProfile(false);
     } catch (err: any) {
       console.error('Failed to update profile:', err);
       
@@ -89,10 +175,16 @@ const MyProfile = () => {
           }
         });
         setValidationErrors(errors);
+        toast.error('Please fix the errors and try again');
       } else {
         toast.error('Failed to update profile', {
           description: err.message,
         });
+        
+        // Handle authentication errors
+        if (err.message.includes('session has expired') || err.message.includes('Authentication required')) {
+          navigate('/login', { replace: true });
+        }
       }
     } finally {
       setIsUpdating(false);
@@ -128,38 +220,21 @@ const MyProfile = () => {
   };
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
+    if (authState.token) {
+      fetchProfile(false); // Don't show toast on initial load
+    }
+  }, [authState.token]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-16">
-        <div className="container mx-auto px-4">
-          <div className="max-w-5xl mx-auto">
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-              <p className="text-lg text-gray-600">Loading your profile...</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
-  if (!profile) {
+  if (error || !profile) {
     return (
-      <div className="min-h-screen bg-gray-50 py-16">
-        <div className="container mx-auto px-4">
-          <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-sm p-8">
-            <div className="flex flex-col items-center justify-center py-12">
-              <p className="text-red-600 text-center">Unable to load profile. Please try again later.</p>
-              <Link to="/">
-                <Button className="mt-4">Go Home</Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ProfileErrorState 
+        error={error || 'Unable to load profile. Please try again later.'} 
+        onRetry={() => fetchProfile(true)}
+      />
     );
   }
 
@@ -168,11 +243,25 @@ const MyProfile = () => {
       <div className="container mx-auto px-4">
         <div className="max-w-5xl mx-auto">
           <div className="mb-8">
-            <h1 className="text-4xl font-bold mb-2">My Profile</h1>
-            <p className="text-gray-600">Manage your account information and view your order statistics</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-4xl font-bold mb-2">My Profile</h1>
+                <p className="text-gray-600">Manage your account information and view your order statistics</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fetchProfile(true)}
+                disabled={isLoading}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6 mb-8">
+          <div className="grid md:grid-cols-4 gap-6 mb-8">
             {/* Order Statistics Cards */}
             <div className="bg-white rounded-lg shadow-sm p-6">
               <div className="flex items-center gap-3 mb-2">
@@ -181,7 +270,7 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Total Orders</p>
-                  <p className="text-2xl font-bold">{profile.total_orders || 0}</p>
+                  <p className="text-2xl font-bold">{statistics?.totalOrders || profile.total_orders || 0}</p>
                 </div>
               </div>
             </div>
@@ -193,7 +282,7 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Total Spent</p>
-                  <p className="text-2xl font-bold">₹{(profile.total_spent || 0).toFixed(2)}</p>
+                  <p className="text-2xl font-bold">₹{(statistics?.totalSpent || profile.total_spent || 0).toFixed(2)}</p>
                 </div>
               </div>
             </div>
@@ -205,7 +294,19 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Pending Orders</p>
-                  <p className="text-2xl font-bold">{profile.pending_orders || 0}</p>
+                  <p className="text-2xl font-bold">{statistics?.pendingOrders || profile.pending_orders || 0}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Avg Order Value</p>
+                  <p className="text-2xl font-bold">₹{(statistics?.averageOrderValue || profile.average_order_value || 0).toFixed(2)}</p>
                 </div>
               </div>
             </div>
@@ -223,53 +324,81 @@ const MyProfile = () => {
             </div>
 
             {isEditMode ? (
-              <form onSubmit={updateProfile} className="space-y-4">
+              <form onSubmit={updateProfile} className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium mb-2">
                     <UserIcon className="inline h-4 w-4 mr-1" />
-                    Name
+                    Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    className={`w-full p-3 border rounded-lg ${
-                      validationErrors.name ? 'border-red-500' : 'border-gray-300'
+                    className={`w-full p-3 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                      validationErrors.name 
+                        ? 'border-red-500 focus:border-red-500' 
+                        : formData.name && !validateField('name', formData.name)
+                        ? 'border-green-500 focus:border-green-500'
+                        : 'border-gray-300 focus:border-primary'
                     }`}
                     value={formData.name}
-                    onChange={(e) => {
-                      setFormData({ ...formData, name: e.target.value });
-                      setValidationErrors({ ...validationErrors, name: '' });
-                    }}
-                    placeholder="Enter your name"
+                    onChange={(e) => handleFieldChange('name', e.target.value)}
+                    placeholder="Enter your full name"
+                    maxLength={50}
+                    autoComplete="name"
                   />
                   {validationErrors.name && (
-                    <p className="text-red-500 text-sm mt-1">{validationErrors.name}</p>
+                    <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                      <span className="text-red-500">⚠</span>
+                      {validationErrors.name}
+                    </p>
+                  )}
+                  {formData.name && !validationErrors.name && !validateField('name', formData.name) && (
+                    <p className="text-green-600 text-sm mt-1 flex items-center gap-1">
+                      <span className="text-green-500">✓</span>
+                      Looks good!
+                    </p>
                   )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
                     <Mail className="inline h-4 w-4 mr-1" />
-                    Email
+                    Email <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="email"
-                    className={`w-full p-3 border rounded-lg ${
-                      validationErrors.email ? 'border-red-500' : 'border-gray-300'
+                    className={`w-full p-3 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                      validationErrors.email 
+                        ? 'border-red-500 focus:border-red-500' 
+                        : formData.email && !validateField('email', formData.email)
+                        ? 'border-green-500 focus:border-green-500'
+                        : 'border-gray-300 focus:border-primary'
                     }`}
                     value={formData.email}
-                    onChange={(e) => {
-                      setFormData({ ...formData, email: e.target.value });
-                      setValidationErrors({ ...validationErrors, email: '' });
-                    }}
-                    placeholder="Enter your email"
+                    onChange={(e) => handleFieldChange('email', e.target.value)}
+                    placeholder="Enter your email address"
+                    maxLength={100}
+                    autoComplete="email"
                   />
                   {validationErrors.email && (
-                    <p className="text-red-500 text-sm mt-1">{validationErrors.email}</p>
+                    <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                      <span className="text-red-500">⚠</span>
+                      {validationErrors.email}
+                    </p>
+                  )}
+                  {formData.email && !validationErrors.email && !validateField('email', formData.email) && (
+                    <p className="text-green-600 text-sm mt-1 flex items-center gap-1">
+                      <span className="text-green-500">✓</span>
+                      Valid email address
+                    </p>
                   )}
                 </div>
 
                 <div className="flex gap-3 pt-4">
-                  <Button type="submit" disabled={isUpdating} className="flex-1">
+                  <Button 
+                    type="submit" 
+                    disabled={isUpdating || Object.keys(validationErrors).some(key => validationErrors[key])} 
+                    className="flex-1"
+                  >
                     {isUpdating ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -325,6 +454,117 @@ const MyProfile = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Profile Dashboard Section */}
+          {statistics && (
+            <div className="grid md:grid-cols-2 gap-6 mb-8">
+              {/* Favorite Categories */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                  <ShoppingBag className="h-5 w-5 text-primary" />
+                  Favorite Categories
+                </h3>
+                {statistics.favoriteCategories.length > 0 ? (
+                  <div className="space-y-2">
+                    {statistics.favoriteCategories.map((category, index) => (
+                      <div key={category} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <span className="font-medium">{category}</span>
+                        <Badge variant="secondary">#{index + 1}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-gray-600 mb-3">No favorite categories yet</p>
+                    <Link to="/">
+                      <Button size="sm">Browse Books</Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+
+              {/* Account Summary */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                  <UserIcon className="h-5 w-5 text-primary" />
+                  Account Summary
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-gray-600" />
+                      <span className="text-sm text-gray-600">Member Since</span>
+                    </div>
+                    <span className="font-medium">
+                      {new Date(statistics.memberSince).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                      })}
+                    </span>
+                  </div>
+                  
+                  {statistics.lastOrderDate && (
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-gray-600" />
+                        <span className="text-sm text-gray-600">Last Order</span>
+                      </div>
+                      <span className="font-medium">
+                        {new Date(statistics.lastOrderDate).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-gray-600" />
+                      <span className="text-sm text-gray-600">Avg Order</span>
+                    </div>
+                    <span className="font-medium">₹{statistics.averageOrderValue.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions Section */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
+            <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Link to="/order-history" className="group">
+                <div className="p-4 border rounded-lg hover:bg-gray-50 transition-colors text-center">
+                  <Package className="h-8 w-8 mx-auto mb-2 text-primary group-hover:scale-110 transition-transform" />
+                  <p className="text-sm font-medium">Order History</p>
+                </div>
+              </Link>
+              
+              <Link to="/" className="group">
+                <div className="p-4 border rounded-lg hover:bg-gray-50 transition-colors text-center">
+                  <ShoppingBag className="h-8 w-8 mx-auto mb-2 text-primary group-hover:scale-110 transition-transform" />
+                  <p className="text-sm font-medium">Browse Books</p>
+                </div>
+              </Link>
+              
+              <Link to="/cart" className="group">
+                <div className="p-4 border rounded-lg hover:bg-gray-50 transition-colors text-center">
+                  <svg className="h-8 w-8 mx-auto mb-2 text-primary group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-1.5 6M7 13l-1.5 6m0 0h9" />
+                  </svg>
+                  <p className="text-sm font-medium">View Cart</p>
+                </div>
+              </Link>
+              
+              <div className="group cursor-pointer" onClick={() => fetchProfile(true)}>
+                <div className="p-4 border rounded-lg hover:bg-gray-50 transition-colors text-center">
+                  <RefreshCw className="h-8 w-8 mx-auto mb-2 text-primary group-hover:scale-110 transition-transform" />
+                  <p className="text-sm font-medium">Refresh Data</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Recent Orders Section */}

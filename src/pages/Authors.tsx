@@ -3,8 +3,56 @@ import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { authors } from '@/data/mockData';
+import { useUrlStringState } from '@/hooks/useUrlState';
+import { useMemo, useState, useEffect } from 'react';
+import { AuthorsPageSkeleton } from '@/components/ui/author-skeleton';
 
 const Authors = () => {
+  const [searchTerm, setSearchTerm] = useUrlStringState('search', '');
+  const [selectedLetter, setSelectedLetter] = useUrlStringState('letter', '');
+  const [loading, setLoading] = useState(true);
+
+  // Simulate loading for demonstration
+  useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Filter authors based on search term and selected letter
+  const filteredAuthors = useMemo(() => {
+    let filtered = authors;
+
+    // Filter by search term
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(author =>
+        author.name.toLowerCase().includes(searchLower) ||
+        author.bio.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Filter by selected letter
+    if (selectedLetter) {
+      filtered = filtered.filter(author =>
+        author.name.charAt(0).toUpperCase() === selectedLetter
+      );
+    }
+
+    return filtered;
+  }, [searchTerm, selectedLetter, authors]);
+
+  const handleLetterClick = (letter: string) => {
+    if (selectedLetter === letter) {
+      setSelectedLetter(''); // Deselect if already selected
+    } else {
+      setSelectedLetter(letter);
+    }
+  };
+
+  if (loading) {
+    return <AuthorsPageSkeleton />;
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
@@ -20,40 +68,79 @@ const Authors = () => {
           <Input
             placeholder="Search authors..."
             className="pl-10"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+
+        {/* Active filters display */}
+        {(searchTerm || selectedLetter) && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {searchTerm && (
+              <div className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm flex items-center gap-2">
+                Search: "{searchTerm}"
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="hover:bg-primary/20 rounded-full p-0.5"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {selectedLetter && (
+              <div className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm flex items-center gap-2">
+                Letter: {selectedLetter}
+                <button
+                  onClick={() => setSelectedLetter('')}
+                  className="hover:bg-primary/20 rounded-full p-0.5"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Authors Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {authors.map((author) => (
-          <Card key={author.id} className="group hover:shadow-lg transition-shadow">
-            <CardContent className="p-6 text-center">
-              <Link to={`/author/${author.slug}`}>
-                {/* Author Photo */}
-                <div className="mb-4">
-                  <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-2xl font-bold text-primary border-2 border-primary/10">
-                    {author.name.split(' ').map(n => n[0]).join('')}
+        {filteredAuthors.length > 0 ? (
+          filteredAuthors.map((author) => (
+            <Card key={author.id} className="group hover:shadow-lg transition-shadow">
+              <CardContent className="p-6 text-center">
+                <Link to={`/author/${author.slug}`}>
+                  {/* Author Photo */}
+                  <div className="mb-4">
+                    <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-2xl font-bold text-primary border-2 border-primary/10">
+                      {author.name.split(' ').map(n => n[0]).join('')}
+                    </div>
                   </div>
-                </div>
-                
-                <h3 className="font-semibold text-lg mb-2 group-hover:text-primary transition-colors">
-                  {author.name}
-                </h3>
-                
-                <p className="text-sm text-muted-foreground line-clamp-3 mb-4">
-                  {author.bio}
-                </p>
-                
-                {author.socials?.website && (
-                  <div className="text-xs text-primary hover:underline">
-                    Visit Website →
-                  </div>
-                )}
-              </Link>
-            </CardContent>
-          </Card>
-        ))}
+                  
+                  <h3 className="font-semibold text-lg mb-2 group-hover:text-primary transition-colors">
+                    {author.name}
+                  </h3>
+                  
+                  <p className="text-sm text-muted-foreground line-clamp-3 mb-4">
+                    {author.bio}
+                  </p>
+                  
+                  {author.socials?.website && (
+                    <div className="text-xs text-primary hover:underline">
+                      Visit Website →
+                    </div>
+                  )}
+                </Link>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <div className="col-span-full text-center py-12">
+            <p className="text-lg text-muted-foreground mb-2">No authors found</p>
+            <p className="text-sm text-muted-foreground">
+              Try adjusting your search terms or selected letter filter
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Alphabet Navigation */}
@@ -62,7 +149,12 @@ const Authors = () => {
           {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((letter) => (
             <button
               key={letter}
-              className="w-8 h-8 rounded-full hover:bg-primary hover:text-primary-foreground transition-colors text-sm font-medium"
+              onClick={() => handleLetterClick(letter)}
+              className={`w-8 h-8 rounded-full transition-colors text-sm font-medium ${
+                selectedLetter === letter
+                  ? 'bg-primary text-primary-foreground'
+                  : 'hover:bg-primary hover:text-primary-foreground'
+              }`}
             >
               {letter}
             </button>

@@ -1,15 +1,27 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, ShoppingCart, Heart, Menu, X, User, LogOut } from 'lucide-react';
+import { Search, ShoppingCart, Heart, Menu, X, User, LogOut, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger } from '@/components/ui/navigation-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Skeleton } from '@/components/ui/skeleton';
+import { MobileNavigationSkeleton } from '@/components/ui/menu-skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { MegaMenu } from './MegaMenu';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import { useTopLevelCategories } from '../hooks/useMenuData';
 import { Badge } from '@/components/ui/badge';
+import { CategoryMenuItem } from '../services/menuService';
+
+interface NavigationItem {
+  name: string;
+  href: string;
+  hasMenu?: boolean;
+  categories?: CategoryMenuItem[];
+}
 
 const Header = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -17,27 +29,41 @@ const Header = () => {
   const { state: auth, logout } = useAuth();
   const location = useLocation();
   
-  // When integrating with Laravel API, you might want to fetch cart count on component mount
-  // useEffect(() => {
-  //   const fetchCartCount = async () => {
-  //     try {
-  //       const response = await fetch('/api/cart/count');
-  //       const data = await response.json();
-  //       // Update cart count state
-  //     } catch (error) {
-  //       console.error('Error fetching cart count:', error);
-  //     }
-  //   };
-  //   fetchCartCount();
-  // }, []);
+  // Get dynamic menu data with auto-refresh enabled
+  const { 
+    categories, 
+    isLoading: isMenuLoading, 
+    error: menuError, 
+    refreshMenu, 
+    clearError,
+    isRefreshing 
+  } = useTopLevelCategories();
+
+  // Debug logging (only in development)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Header Menu Debug:', {
+      categoriesCount: categories.length,
+      isMenuLoading,
+      menuError,
+      hasCategories: categories.length > 0
+    });
+  }
   
-  const navigation = [
+  // Static navigation items - restored old menu structure
+  const staticNavigation: NavigationItem[] = [
     { name: 'Latest Releases', href: '/latest-releases' },
-    { name: 'Our Books', href: '/books', hasMenu: true },
+    { 
+      name: 'Our Books', 
+      href: '/books', 
+      hasMenu: true,
+      categories: categories // Only this section is dynamic
+    },
     { name: 'Our Authors', href: '/authors' },
     { name: 'Publish with Us!', href: '/publish' },
     { name: 'Contact Us', href: '/contact' },
   ];
+
+  const navigationItems = staticNavigation;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -56,29 +82,39 @@ const Header = () => {
           {/* Desktop Navigation */}
           <NavigationMenu className="hidden md:flex">
             <NavigationMenuList>
-              {navigation.map((item) => (
-                <NavigationMenuItem key={item.name}>
-                  {item.hasMenu ? (
-                    <>
-                      <NavigationMenuTrigger className="h-10">
-                        {item.name}
-                      </NavigationMenuTrigger>
-                      <NavigationMenuContent>
-                        <MegaMenu />
-                      </NavigationMenuContent>
-                    </>
-                  ) : (
-                    <NavigationMenuLink asChild>
-                      <Link
-                        to={item.href}
-                        className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none disabled:pointer-events-none disabled:opacity-50"
-                      >
-                        {item.name}
-                      </Link>
-                    </NavigationMenuLink>
-                  )}
-                </NavigationMenuItem>
-              ))}
+              {/* Always show navigation items */}
+              {navigationItems.map((item) => (
+                  <NavigationMenuItem key={item.name}>
+                    {item.hasMenu ? (
+                      <>
+                        <NavigationMenuTrigger className="h-10">
+                          {item.name}
+                          {item.categories && item.categories.length > 0 && (
+                            <Badge variant="secondary" className="ml-2 text-xs transition-all duration-200 hover:scale-105">
+                              {item.categories.reduce((total, cat) => total + cat.bookCount, 0)}
+                            </Badge>
+                          )}
+                        </NavigationMenuTrigger>
+                        <NavigationMenuContent>
+                          <MegaMenu 
+                            categories={item.categories} 
+                            isLoading={isMenuLoading}
+                            error={menuError}
+                          />
+                        </NavigationMenuContent>
+                      </>
+                    ) : (
+                      <NavigationMenuLink asChild>
+                        <Link
+                          to={item.href}
+                          className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          {item.name}
+                        </Link>
+                      </NavigationMenuLink>
+                    )}
+                  </NavigationMenuItem>
+                ))}
             </NavigationMenuList>
           </NavigationMenu>
 
@@ -188,15 +224,40 @@ const Header = () => {
               </SheetTrigger>
               <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                 <nav className="flex flex-col space-y-4 mt-8">
-                  {navigation.map((item) => (
-                    <Link
-                      key={item.name}
-                      to={item.href}
-                      className="text-lg font-medium hover:text-primary transition-colors"
-                    >
-                      {item.name}
-                    </Link>
-                  ))}
+                  {/* Always show mobile navigation items */}
+                  {navigationItems.map((item) => (
+                      <div key={item.name}>
+                        <Link
+                          to={item.href}
+                          className="text-lg font-medium hover:text-primary transition-colors flex items-center justify-between"
+                        >
+                          <span>{item.name}</span>
+                          {item.categories && item.categories.length > 0 && (
+                            <Badge variant="secondary" className="text-xs transition-all duration-200">
+                              {item.categories.reduce((total, cat) => total + cat.bookCount, 0)}
+                            </Badge>
+                          )}
+                        </Link>
+                        {/* Show categories in mobile menu */}
+                        {item.categories && item.categories.length > 0 && (
+                          <div className="ml-4 mt-2 space-y-2">
+                            {item.categories.map((category) => (
+                              <Link
+                                key={category.id}
+                                to={`/books?category=${category.slug}`}
+                                className="block text-sm text-muted-foreground hover:text-primary transition-colors flex items-center justify-between"
+                              >
+                                <span>{category.name}</span>
+                                <Badge variant="outline" className="text-xs transition-all duration-200">
+                                  {category.bookCount}
+                                </Badge>
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  
                   
                   {/* Mobile Search */}
                   <div className="pt-4 border-t">

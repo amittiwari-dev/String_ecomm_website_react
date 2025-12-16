@@ -24,8 +24,33 @@ const Index = () => {
   const { toast } = useToast();
   const { addToCart } = useCart();
 
+  // Debug logging
+  console.log('Index component rendered');
+  console.log('API_BASE_URL:', API_BASE_URL);
+  console.log('Loading state:', loading);
+  console.log('Books count:', books.length);
+
   const fetchCategory = async (slug) => {
     try {
+      if (!API_BASE_URL) {
+        console.warn(`API_BASE_URL not configured for category ${slug}, using mock data`);
+        const { getBooksByCategory, getCategoriesByParent } = await import('@/data/mockData');
+        
+        // Map slug to category ID
+        const categoryMap = {
+          'books-on-shirdi-sai-baba': '2',
+          'other-religious-books': '3', 
+          'coffee-table-books-and-paperbacks': '4',
+          'text-book': '5'
+        };
+        
+        const categoryId = categoryMap[slug];
+        if (categoryId) {
+          return getBooksByCategory(categoryId).slice(0, 5);
+        }
+        return [];
+      }
+
       const response = await fetch(`${API_BASE_URL}book/${slug}`);
       const data = await response.json();
 
@@ -35,6 +60,26 @@ const Index = () => {
 
       return [];
     } catch (error) {
+      console.warn(`Failed to fetch category ${slug}, using mock data:`, error);
+      
+      // Fallback to mock data
+      try {
+        const { getBooksByCategory } = await import('@/data/mockData');
+        const categoryMap = {
+          'books-on-shirdi-sai-baba': '2',
+          'other-religious-books': '3', 
+          'coffee-table-books-and-paperbacks': '4',
+          'text-book': '5'
+        };
+        
+        const categoryId = categoryMap[slug];
+        if (categoryId) {
+          return getBooksByCategory(categoryId).slice(0, 5);
+        }
+      } catch (mockError) {
+        console.error(`Mock data failed for ${slug}:`, mockError);
+      }
+      
       return [];
     }
   };
@@ -43,6 +88,14 @@ const Index = () => {
   useEffect(() => {
     const fetchBooks = async () => {
       try {
+        if (!API_BASE_URL) {
+          console.warn('API_BASE_URL not configured, using mock data');
+          // Use mock data as fallback
+          const { getLatestReleases } = await import('@/data/mockData');
+          setBooks(getLatestReleases().slice(0, 8));
+          return;
+        }
+
         const response = await fetch(`${API_BASE_URL}new-note`);
         if (!response.ok) throw new Error('Failed to fetch books');
 
@@ -54,12 +107,19 @@ const Index = () => {
           throw new Error('Invalid response format');
         }
       } catch (error) {
-        console.error(error);
-        toast({
-          title: "Error",
-          description: "Failed to load books.",
-          variant: "destructive",
-        });
+        console.error('API failed, using mock data:', error);
+        // Fallback to mock data
+        try {
+          const { getLatestReleases } = await import('@/data/mockData');
+          setBooks(getLatestReleases().slice(0, 8));
+        } catch (mockError) {
+          console.error('Mock data also failed:', mockError);
+          toast({
+            title: "Error",
+            description: "Failed to load books.",
+            variant: "destructive",
+          });
+        }
       }
     };
 
@@ -70,12 +130,14 @@ const Index = () => {
   useEffect(() => {
     const loadCategories = async () => {
       try {
+        console.log('Loading categories...');
         setShirdiBooks(await fetchCategory('books-on-shirdi-sai-baba'));
         setOtherReligious(await fetchCategory('other-religious-books'));
         setCoffeeTableBooks(await fetchCategory('coffee-table-books-and-paperbacks'));
         setTextBooks(await fetchCategory('text-book'));
+        console.log('Categories loaded successfully');
       } catch (error) {
-        console.error(error);
+        console.error('Error loading categories:', error);
       } finally {
         setLoading(false);
       }
@@ -85,8 +147,19 @@ const Index = () => {
   }, []);
 
   if (loading) {
-    return <div className="text-center py-10 text-gray-500">Loading books...</div>;
+    console.log('Showing loading state...');
+    return (
+      <div className="min-h-screen bg-white">
+        <div className="text-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-gray-500">Loading books...</p>
+          <p className="text-xs text-gray-400 mt-2">API: {API_BASE_URL || 'Not configured'}</p>
+        </div>
+      </div>
+    );
   }
+
+  console.log('Rendering main content...');
 
   return (
     <div>
@@ -123,9 +196,17 @@ const Index = () => {
       {/* Shirdi Books */}
       <section className="py-16 scroll-mt-20">
         <div className="container mx-auto px-4">
-          <div className="mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Books on Shirdi Sai Baba</h2>
-            <div className="w-16 h-1 bg-primary"></div>
+          <div className="mb-8 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Books on Shirdi Sai Baba</h2>
+              <div className="w-16 h-1 bg-primary"></div>
+            </div>
+            <Link 
+              to="/books?category=shirdi-sai-baba" 
+              className="text-primary hover:underline font-medium"
+            >
+              View All Books →
+            </Link>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
@@ -139,9 +220,17 @@ const Index = () => {
       {/* Other Religious Books */}
       <section className="py-16 scroll-mt-20">
         <div className="container mx-auto px-4">
-          <div className="mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Other Religious Books</h2>
-            <div className="w-16 h-1 bg-primary"></div>
+          <div className="mb-8 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Other Religious Books</h2>
+              <div className="w-16 h-1 bg-primary"></div>
+            </div>
+            <Link 
+              to="/books?category=other-religious" 
+              className="text-primary hover:underline font-medium"
+            >
+              View All Books →
+            </Link>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
@@ -155,9 +244,17 @@ const Index = () => {
       {/* Coffee Table Books */}
       <section className="py-16 scroll-mt-20">
         <div className="container mx-auto px-4">
-          <div className="mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Coffee Table Books and Paperbacks</h2>
-            <div className="w-16 h-1 bg-primary"></div>
+          <div className="mb-8 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Coffee Table Books and Paperbacks</h2>
+              <div className="w-16 h-1 bg-primary"></div>
+            </div>
+            <Link 
+              to="/books?category=coffee-table-paperbacks" 
+              className="text-primary hover:underline font-medium"
+            >
+              View All Books →
+            </Link>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
@@ -171,9 +268,17 @@ const Index = () => {
       {/* Text Books */}
       <section className="py-16 scroll-mt-20">
         <div className="container mx-auto px-4">
-          <div className="mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Text Books</h2>
-            <div className="w-16 h-1 bg-primary"></div>
+          <div className="mb-8 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Text Books</h2>
+              <div className="w-16 h-1 bg-primary"></div>
+            </div>
+            <Link 
+              to="/books?category=textbooks" 
+              className="text-primary hover:underline font-medium"
+            >
+              View All Books →
+            </Link>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">

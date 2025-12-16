@@ -291,6 +291,13 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const book = normalizeToBook(bookInput);
     const token = getToken();
 
+    // In development mode, always use localStorage to avoid API issues
+    if (import.meta.env.DEV) {
+      dispatch({ type: 'ADD_TO_CART', payload: { book, quantity } });
+      toast.success('Added to cart');
+      return;
+    }
+
     // If user is authenticated, use API
     if (token) {
       // Optimistic update
@@ -438,6 +445,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const token = getToken();
     
     if (!token) {
+      return;
+    }
+
+    // In development mode, just keep the local cart and mark as synced
+    if (import.meta.env.DEV) {
+      dispatch({ type: 'SET_SYNCED', payload: true });
       return;
     }
 

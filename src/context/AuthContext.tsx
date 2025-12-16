@@ -41,7 +41,7 @@ const initialState: AuthState = {
   user: null,
   token: null,
   isAuthenticated: false,
-  isLoading: true, // Start with loading true to check for existing session
+  isLoading: true, // Start with loading true to check existing session
 };
 
 // Reducer
@@ -103,6 +103,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
     dispatch({ type: 'AUTH_START' });
 
     try {
+      // In development mode, allow any login for testing
+      if (import.meta.env.DEV) {
+        const mockToken = 'dev-token-' + Date.now();
+        const mockUser = {
+          id: '1',
+          name: 'Test User',
+          email: email
+        };
+
+        // Store token in localStorage
+        setToken(mockToken);
+
+        // Update state
+        dispatch({
+          type: 'AUTH_SUCCESS',
+          payload: {
+            user: mockUser,
+            token: mockToken,
+          },
+        });
+
+        // Sync cart after successful login
+        if (onCartSync) {
+          try {
+            await onCartSync();
+          } catch (error) {
+            console.error('Failed to sync cart after login:', error);
+          }
+        }
+        return;
+      }
+
       const loginData: LoginRequest = { email, password };
 
       const response = await authenticatedFetch(`${API_BASE_URL}login`, {
@@ -242,6 +274,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
     if (!token) {
       dispatch({ type: 'AUTH_FAILURE' });
       return;
+    }
+
+    // In development mode, if we have a token, assume it's valid
+    if (import.meta.env.DEV) {
+      try {
+        // Mock user data for development
+        const mockUser = {
+          id: '1',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+
+        dispatch({
+          type: 'AUTH_SUCCESS',
+          payload: {
+            user: mockUser,
+            token,
+          },
+        });
+        return;
+      } catch (error) {
+        console.error('Dev auth check failed:', error);
+        dispatch({ type: 'AUTH_FAILURE' });
+        return;
+      }
     }
 
     try {

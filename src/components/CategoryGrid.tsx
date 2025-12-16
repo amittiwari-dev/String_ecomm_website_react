@@ -1,10 +1,19 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { getCategoriesByParent } from '@/data/mockData';
 import { BookOpen, Users, GraduationCap, Heart } from 'lucide-react';
+import { CategoryGridSkeleton } from '@/components/ui/category-skeleton';
 
 const CategoryGrid = () => {
+  const [loading, setLoading] = useState(true);
   const mainCategories = getCategoriesByParent(null).filter(cat => cat.id !== '1');
+
+  // Simulate loading for demonstration
+  useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 500);
+    return () => clearTimeout(timer);
+  }, []);
   
   const categoryIcons = {
     '2': Heart, // Shirdi Sai Baba
@@ -19,6 +28,10 @@ const CategoryGrid = () => {
     '4': '300+ Books',
     '5': '120+ Books',
   };
+
+  if (loading) {
+    return <CategoryGridSkeleton count={4} />;
+  }
 
   return (
     <section className="py-16 bg-muted/20">

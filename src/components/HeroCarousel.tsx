@@ -8,6 +8,8 @@ import { getLatestReleases } from '@/data/mockData';
 const HeroCarousel = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const latestBooks = getLatestReleases().slice(0, 5); // Show top 5 latest releases
+  
+  console.log('HeroCarousel rendered, books count:', latestBooks.length);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -29,7 +31,21 @@ const HeroCarousel = () => {
     setCurrentSlide((prev) => (prev + 1) % latestBooks.length);
   };
 
-  if (latestBooks.length === 0) return null;
+  if (latestBooks.length === 0) {
+    return (
+      <section className="relative w-full h-[500px] overflow-hidden bg-gradient-to-r from-sterling-red-light to-white">
+        <div className="container mx-auto px-4 h-full flex items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-4xl md:text-5xl font-bold mb-4">Welcome to Sterling Publishers</h1>
+            <p className="text-xl text-muted-foreground mb-8">Discover our collection of quality books</p>
+            <Button asChild>
+              <Link to="/books">Browse Books</Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="relative w-full h-[500px] overflow-hidden bg-gradient-to-r from-sterling-red-light to-white">

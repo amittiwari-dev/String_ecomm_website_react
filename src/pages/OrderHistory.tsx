@@ -320,9 +320,11 @@ const OrderHistory = () => {
             </div>
           )}
 
-          <div className="mt-6 text-center text-sm text-gray-600">
-            Showing page {orders.current_page} of {orders.last_page} ({orders.total} total orders)
-          </div>
+          {orders && (
+            <div className="mt-6 text-center text-sm text-gray-600">
+              Showing page {orders.current_page} of {orders.last_page} ({orders.total} total orders)
+            </div>
+          )}
         </div>
       </div>
 
@@ -401,9 +403,10 @@ const OrderDetailsDialog = ({
                 <p>
                   <span className="text-gray-600">Payment Method:</span>{' '}
                   {order.payment_method
-                    .split('-')
-                    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                    .join(' ')}
+                    ? order.payment_method.split('-')
+                        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                        .join(' ')
+                    : 'N/A'}
                 </p>
               </div>
             </div>
@@ -425,31 +428,35 @@ const OrderDetailsDialog = ({
           <div>
             <h3 className="font-semibold mb-3">Order Items</h3>
             <div className="space-y-3">
-              {order.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex gap-4 p-3 bg-gray-50 rounded-lg"
-                >
-                  <img
-                    src={item.product_image}
-                    alt={item.product_name}
-                    className="w-16 h-20 object-cover rounded"
-                    onError={(e) => {
-                      e.currentTarget.src = '/img/book-categori/book-placeholder.png';
-                    }}
-                  />
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900">{item.product_name}</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Quantity: {item.quantity}
-                    </p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1">
-                      ₹{item.price.toFixed(2)} × {item.quantity} = ₹
-                      {(item.price * item.quantity).toFixed(2)}
-                    </p>
+              {order.items && order.items.length > 0 ? (
+                order.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex gap-4 p-3 bg-gray-50 rounded-lg"
+                  >
+                    <img
+                      src={item.product_image}
+                      alt={item.product_name}
+                      className="w-16 h-20 object-cover rounded"
+                      onError={(e) => {
+                        e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+                      }}
+                    />
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{item.product_name}</h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Quantity: {item.quantity}
+                      </p>
+                      <p className="text-sm font-semibold text-gray-900 mt-1">
+                        ₹{item.price.toFixed(2)} × {item.quantity} = ₹
+                        {(item.price * item.quantity).toFixed(2)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-gray-600 text-center py-4">No items in this order</p>
+              )}
             </div>
           </div>
 

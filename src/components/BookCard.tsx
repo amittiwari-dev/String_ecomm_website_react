@@ -14,8 +14,8 @@ const mapApiBookToBook = (api: any): Book => {
   const price = Number(api.price) || 0;
   const idStr = api.id != null ? String(api.id) : (api.product_slug || '0');
   const slug = api.product_slug || idStr;
-  // Normalize API base and join with images path
-  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/').replace(/\/api\/?$/, '').replace(/\/$/, '');
+  // Use the correct base URL for images
+  const base = 'https://sterlingpublishers.in/publishing';
   const cover = api.product_image
     ? `${base}/images/products/${api.product_image}`
     : '/img/book-categori/book-placeholder.png';

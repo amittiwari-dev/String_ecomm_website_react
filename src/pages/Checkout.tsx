@@ -40,11 +40,12 @@ const checkoutSchema = z.object({
 type CheckoutForm = z.infer<typeof checkoutSchema>;
 
 const Checkout = () => {
-  const { state: cart, clearCart } = useCart();
+  const { state: cart, clearCart, syncCart } = useCart();
   const { state: authState } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderTotal, setOrderTotal] = useState(0);
+  const [orderProcessing, setOrderProcessing] = useState(false);
 
   const form = useForm<CheckoutForm>({
     resolver: zodResolver(checkoutSchema),
@@ -64,13 +65,20 @@ const Checkout = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Redirect to cart if cart is empty after loading
+  // Redirect to cart if cart is empty after loading (but not during order processing)
   useEffect(() => {
-    if (!cart.isLoading && cart.items.length === 0) {
-      toast.error('Your cart is empty');
-      navigate('/cart');
-    }
-  }, [cart.isLoading, cart.items.length, navigate]);
+    // Give cart some time to load from localStorage before checking
+    const timer = setTimeout(() => {
+      if (!cart.isLoading && cart.items.length === 0 && !orderProcessing) {
+        console.log('🚨 Cart is empty after loading, redirecting to cart page');
+        console.log('Cart state:', { isLoading: cart.isLoading, itemCount: cart.items.length, orderProcessing });
+        toast.error('Your cart is empty');
+        navigate('/cart');
+      }
+    }, 2000); // Wait 2 seconds for cart to load
+
+    return () => clearTimeout(timer);
+  }, [cart.isLoading, cart.items.length, navigate, orderProcessing]);
 
   useEffect(() => {
     // Calculate order total including taxes and shipping
@@ -84,8 +92,13 @@ const Checkout = () => {
   const onSubmit = async (data: CheckoutForm) => {
     if (isSubmitting) return;
     
+    console.log('🔍 Starting order submission...');
+    console.log('Auth state:', { isAuthenticated: authState.isAuthenticated, hasToken: !!authState.token });
+    console.log('Cart state:', { itemCount: cart.items.length, total: cart.total });
+    
     // Validate user is authenticated
     if (!authState.isAuthenticated || !authState.token) {
+      console.log('❌ User not authenticated');
       toast.error('Please login to complete checkout');
       navigate('/login', { state: { from: '/checkout' } });
       return;
@@ -93,15 +106,29 @@ const Checkout = () => {
 
     // Validate cart is not empty
     if (cart.items.length === 0) {
+      console.log('❌ Cart is empty');
       toast.error('Your cart is empty');
       navigate('/cart');
       return;
     }
     
     setIsSubmitting(true);
-    const loadingToastId = toast.loading('Processing your order...');
+    setOrderProcessing(true); // Prevent cart empty redirect during order processing
+    const loadingToastId = toast.loading('Preparing your order...');
 
     try {
+      console.log('📝 Syncing cart with backend...');
+      
+      // CRITICAL: Sync cart with API BEFORE creating order
+      // This ensures the backend has all cart items before checking
+      toast.loading('Syncing cart...', { id: loadingToastId });
+      await syncCart();
+      
+      // Wait a moment to ensure sync completes
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      console.log('✅ Cart synced successfully');
+      
       // Prepare order data for API - use flat structure matching backend expectations
       const orderData = {
         shipping_name: data.fullName,
@@ -115,18 +142,29 @@ const Checkout = () => {
         payment_method: data.paymentMethod,
       };
 
+      console.log('📦 Order data prepared:', orderData);
+      console.log('🚀 Calling OrderService.createOrder...');
+
+      // Update loading message
+      toast.loading('Creating your order...', { id: loadingToastId });
+
       // Call API to create order
       const order = await OrderService.createOrder(authState.token, orderData);
-
-      // Clear the cart after successful order
-      clearCart();
-      form.reset();
       
+      console.log('✅ Order created successfully:', order);
+
       // Dismiss loading toast and show success
       toast.dismiss(loadingToastId);
-      toast.success('🎉 Order placed successfully!');
+      toast.success('🎉 Order placed successfully!', {
+        description: `Order #${order.order_number} has been confirmed!`,
+        duration: 5000,
+      });
       
-      // Navigate to order confirmation page with order details
+      form.reset();
+      
+      console.log('🎯 Navigating to order confirmation...');
+      
+      // Navigate to order confirmation page with order details first
       navigate('/order-confirmation', { 
         state: { 
           orderId: order.id,
@@ -135,12 +173,20 @@ const Checkout = () => {
         },
         replace: true // Prevent going back to checkout
       });
+      
+      // Clear the cart after navigation (with a small delay to ensure navigation completes)
+      setTimeout(() => {
+        console.log('🗑️ Clearing cart after successful order and navigation...');
+        clearCart();
+      }, 100);
     } catch (error) {
-      console.error('Error placing order:', error);
+      console.error('❌ Error placing order:', error);
       toast.dismiss(loadingToastId);
       
       // Handle different error types
       const errorMessage = error instanceof Error ? error.message : 'Failed to place order';
+      
+      console.log('Error message:', errorMessage);
       
       // Check if it's a validation error (422)
       if (errorMessage.includes(':')) {
@@ -156,12 +202,13 @@ const Checkout = () => {
           duration: 5000,
         });
         navigate('/login', { state: { from: '/checkout' } });
-      } else if (errorMessage.includes('cart is empty')) {
-        // Handle empty cart error
-        toast.error('Your cart is empty', {
-          description: 'Please add items to your cart before checking out',
+      } else if (errorMessage.includes('cart is empty') || errorMessage.includes('Cart is empty')) {
+        // Handle empty cart error - this means sync failed
+        toast.error('Unable to process order', {
+          description: 'Your cart could not be synced. Please try adding items again.',
           duration: 5000,
         });
+        setOrderProcessing(false); // Allow redirect
         navigate('/cart');
       } else {
         // Generic error
@@ -172,6 +219,8 @@ const Checkout = () => {
       }
     } finally {
       setIsSubmitting(false);
+      // Keep orderProcessing true to prevent redirect until navigation completes
+      // It will be reset when component unmounts or user navigates away
     }
   };
 

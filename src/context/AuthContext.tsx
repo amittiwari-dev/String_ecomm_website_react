@@ -103,41 +103,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
     dispatch({ type: 'AUTH_START' });
 
     try {
-      // In development mode, allow any login for testing
-      if (import.meta.env.DEV) {
-        const mockToken = 'dev-token-' + Date.now();
-        const mockUser = {
-          id: '1',
-          name: 'Test User',
-          email: email
-        };
-
-        // Store token in localStorage
-        setToken(mockToken);
-
-        // Update state
-        dispatch({
-          type: 'AUTH_SUCCESS',
-          payload: {
-            user: mockUser,
-            token: mockToken,
-          },
-        });
-
-        // Sync cart after successful login
-        if (onCartSync) {
-          try {
-            await onCartSync();
-          } catch (error) {
-            console.error('Failed to sync cart after login:', error);
-          }
-        }
-        return;
-      }
-
       const loginData: LoginRequest = { email, password };
 
-      const response = await authenticatedFetch(`${API_BASE_URL}login`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -150,17 +118,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
         throw new Error(error.message || 'Login failed');
       }
 
-      const data: AuthResponse = await response.json();
+      const data = await response.json();
+
+      // Handle your live server response format
+      let authResponse: AuthResponse;
+      if (data.status === 200) {
+        authResponse = {
+          user: {
+            id: data.user.id.toString(),
+            name: data.user.name,
+            email: data.user.email,
+          },
+          token: data.token,
+          message: data.message
+        };
+      } else {
+        throw new Error(data.message || 'Login failed');
+      }
 
       // Store token in localStorage
-      setToken(data.token);
+      setToken(authResponse.token);
 
       // Update state
       dispatch({
         type: 'AUTH_SUCCESS',
         payload: {
-          user: data.user,
-          token: data.token,
+          user: authResponse.user,
+          token: authResponse.token,
         },
       });
 
@@ -197,7 +181,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
         password_confirmation: password,
       };
 
-      const response = await authenticatedFetch(`${API_BASE_URL}register`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -210,19 +194,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
         throw new Error(error.message || 'Registration failed');
       }
 
-      const data: AuthResponse = await response.json();
+      const data = await response.json();
 
-      // Store token in localStorage
-      setToken(data.token);
-
-      // Update state (auto-login after registration)
-      dispatch({
-        type: 'AUTH_SUCCESS',
-        payload: {
-          user: data.user,
-          token: data.token,
-        },
-      });
+      // Handle your live server response format
+      if (data.status === 200) {
+        // Registration successful, now login
+        await login(email, password);
+      } else {
+        throw new Error(data.msg || 'Registration failed');
+      }
 
       // Sync cart after successful registration - ensure this completes before returning
       if (onCartSync) {
@@ -243,21 +223,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
    * Logout method - clears token and resets state
    */
   const logout = (): void => {
-    const token = getToken();
-
-    // Call logout endpoint if token exists (fire and forget)
-    if (token) {
-      authenticatedFetch(`${API_BASE_URL}/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-      }).catch((error) => {
-        console.error('Logout API call failed:', error);
-      });
-    }
-
     // Clear token from localStorage
     removeToken();
 
@@ -276,33 +241,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
       return;
     }
 
-    // In development mode, if we have a token, assume it's valid
-    if (import.meta.env.DEV) {
-      try {
-        // Mock user data for development
-        const mockUser = {
-          id: '1',
-          name: 'Test User',
-          email: 'test@example.com'
-        };
-
-        dispatch({
-          type: 'AUTH_SUCCESS',
-          payload: {
-            user: mockUser,
-            token,
-          },
-        });
-        return;
-      } catch (error) {
-        console.error('Dev auth check failed:', error);
-        dispatch({ type: 'AUTH_FAILURE' });
-        return;
-      }
-    }
-
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/me`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/user`, {
         headers: {
           ...getAuthHeader(),
         },
@@ -321,7 +261,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, onCartSync
       dispatch({
         type: 'AUTH_SUCCESS',
         payload: {
-          user: data.user || data,
+          user: {
+            id: data.id?.toString() || '1',
+            name: data.name || 'User',
+            email: data.email || 'user@example.com'
+          },
           token,
         },
       });

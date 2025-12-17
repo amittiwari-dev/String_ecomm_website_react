@@ -120,21 +120,34 @@ const OrderConfirmation = () => {
     );
   }
 
-  // Parse shipping address from JSON string
+  // Parse shipping address - handle both JSON string and direct object
   let shippingAddress: ShippingAddress;
   try {
-    shippingAddress = typeof order.shipping_address === 'string' 
-      ? JSON.parse(order.shipping_address) 
-      : order.shipping_address;
+    if (typeof order.shipping_address === 'string') {
+      shippingAddress = JSON.parse(order.shipping_address);
+    } else if (order.shipping_address) {
+      shippingAddress = order.shipping_address;
+    } else {
+      // Fallback to individual shipping fields from order
+      shippingAddress = {
+        full_name: order.shipping_name || 'N/A',
+        address: order.shipping_address || 'N/A',
+        city: order.shipping_city || 'N/A',
+        state: order.shipping_state || 'N/A',
+        zip_code: order.shipping_zip || 'N/A',
+        country: order.shipping_country || 'N/A'
+      };
+    }
   } catch (error) {
     console.error('Failed to parse shipping address:', error);
+    // Use individual fields as fallback
     shippingAddress = {
-      full_name: 'N/A',
-      address: 'N/A',
-      city: 'N/A',
-      state: 'N/A',
-      zip_code: 'N/A',
-      country: 'N/A'
+      full_name: order.shipping_name || 'N/A',
+      address: order.shipping_address || 'N/A',
+      city: order.shipping_city || 'N/A',
+      state: order.shipping_state || 'N/A',
+      zip_code: order.shipping_zip || 'N/A',
+      country: order.shipping_country || 'N/A'
     };
   }
 
@@ -202,7 +215,7 @@ const OrderConfirmation = () => {
                   minute: '2-digit'
                 })}</p>
                 <p><span className="font-medium">Items:</span> {order.items?.length || 0} item(s)</p>
-                <p><span className="font-medium">Payment Method:</span> {order.payment_method.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}</p>
+                <p><span className="font-medium">Payment Method:</span> {order.payment_method ? order.payment_method.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : 'N/A'}</p>
               </div>
             </div>
 
@@ -231,18 +244,18 @@ const OrderConfirmation = () => {
                 {order.items.map((item) => (
                   <div key={item.id} className="flex gap-4 pb-4 border-b last:border-b-0">
                     <img
-                      src={item.product_image}
-                      alt={item.product_title}
+                      src={item.product_image || '/img/book-categori/book-placeholder.png'}
+                      alt={item.product_name || 'Book'}
                       className="w-16 h-20 object-cover rounded"
                       onError={(e) => {
                         e.currentTarget.src = '/img/book-categori/book-placeholder.png';
                       }}
                     />
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{item.product_title}</h3>
+                      <h3 className="font-medium text-gray-900">{item.product_name || 'Book'}</h3>
                       <p className="text-sm text-gray-600 mt-1">Quantity: {item.quantity}</p>
                       <p className="text-sm font-semibold text-gray-900 mt-1">
-                        ₹{item.price.toFixed(2)} × {item.quantity} = ₹{(item.price * item.quantity).toFixed(2)}
+                        ₹{Number(item.price).toFixed(2)} × {item.quantity} = ₹{(Number(item.price) * item.quantity).toFixed(2)}
                       </p>
                     </div>
                   </div>
@@ -261,7 +274,7 @@ const OrderConfirmation = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>Shipping</span>
-                  <span>{order.shipping === 0 ? 'Free' : `₹${order.shipping.toFixed(2)}`}</span>
+                  <span>{order.shipping_cost === 0 ? 'Free' : `₹${order.shipping_cost.toFixed(2)}`}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
                   <span>Total</span>

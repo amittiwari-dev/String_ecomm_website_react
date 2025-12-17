@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from '@/hooks/use-toast';
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { toast as sonnerToast } from "sonner";
 import { Book } from '@/data/mockData';
@@ -20,7 +20,7 @@ const mapApiBookToBook = (api: any): Book => {
   const slug = api.product_slug || idStr;
   const cover = api.product_image
     ? `http://localhost:8000/images/products/${api.product_image}`
-    : '/img/book-categori/book-placeholder.png';
+    : '/img/book-categori/01.png';
 
   return {
     id: idStr,
@@ -56,6 +56,10 @@ const AllBooks = () => {
   const [useProgressiveLoading, setUseProgressiveLoading] = useState(false);
   const { toast } = useToast();
   const { addToCart } = useCart();
+  const location = useLocation();
+  
+  // Check if we're on the latest-releases route
+  const isLatestReleasesPage = location.pathname === '/latest-releases';
 
   // URL state for search and filters
   const [searchTerm, setSearchTerm] = useUrlStringState('search', '');
@@ -63,6 +67,9 @@ const AllBooks = () => {
   const [categoryFilter, setCategoryFilter] = useUrlStringState('category', '');
   const [minPrice, setMinPrice] = useUrlNumberState('minPrice', 0);
   const [maxPrice, setMaxPrice] = useUrlNumberState('maxPrice', 0);
+
+  // Decode URL category parameter properly
+  const decodedCategoryFilter = categoryFilter ? decodeURIComponent(categoryFilter) : '';
 
   useEffect(() => {
     const fetchBooks = async () => {
@@ -111,6 +118,19 @@ const AllBooks = () => {
   const filteredAndSortedBooks = useMemo(() => {
     let filtered = books;
 
+    // Filter for latest releases if on that page
+    if (isLatestReleasesPage) {
+      // For latest releases, show books with is_latest_release flag or recent books
+      filtered = filtered.filter(book => {
+        // Check if book has is_latest_release flag
+        if (book.is_latest_release === true) return true;
+        
+        // Or check if it's a recent book (higher ID numbers indicate newer books)
+        const bookId = parseInt(book.id) || 0;
+        return bookId >= 15; // Show books with ID 15 and above as latest releases
+      });
+    }
+
     // Filter by search term
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase();
@@ -129,7 +149,7 @@ const AllBooks = () => {
     }
 
     // Filter by category using fixed category mapping
-    if (categoryFilter) {
+    if (decodedCategoryFilter) {
       filtered = filtered.filter(book => {
         // Map category filter to category IDs
         const categoryMap = {
@@ -139,10 +159,12 @@ const AllBooks = () => {
           'Text Books': '5'
         };
         
-        const expectedCategoryId = categoryMap[categoryFilter];
+        const expectedCategoryId = categoryMap[decodedCategoryFilter];
         const bookCategoryId = book.category_id || book.category?.id;
         
-        return bookCategoryId === expectedCategoryId;
+        // Check direct match or subcategory match
+        return bookCategoryId === expectedCategoryId || 
+               (bookCategoryId && bookCategoryId.startsWith(expectedCategoryId));
       });
     }
 
@@ -181,7 +203,7 @@ const AllBooks = () => {
     });
 
     return filtered;
-  }, [books, searchTerm, sortBy, categoryFilter, minPrice, maxPrice]);
+  }, [books, searchTerm, sortBy, decodedCategoryFilter, minPrice, maxPrice, isLatestReleasesPage]);
 
   // Fixed categories like Index page - no dynamic loading
   const availableCategories = useMemo(() => {
@@ -201,7 +223,7 @@ const AllBooks = () => {
     setMaxPrice(0);
   };
 
-  const hasActiveFilters = searchTerm || categoryFilter || sortBy !== 'title' || minPrice > 0 || maxPrice > 0;
+  const hasActiveFilters = searchTerm || decodedCategoryFilter || sortBy !== 'title' || minPrice > 0 || maxPrice > 0;
 
   if (loading) {
     return <AllBooksPageSkeleton />;
@@ -211,9 +233,14 @@ const AllBooks = () => {
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold mb-4">Our Books</h1>
+        <h1 className="text-4xl font-bold mb-4">
+          {isLatestReleasesPage ? 'Latest Releases' : 'Our Books'}
+        </h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Explore our collection of spiritual and religious books across different categories.
+          {isLatestReleasesPage 
+            ? 'Discover our newest publications and recent releases.' 
+            : 'Browse our spiritual and religious categories.'
+          }
         </p>
       </div>
 
@@ -312,9 +339,9 @@ const AllBooks = () => {
                 </button>
               </Badge>
             )}
-            {categoryFilter && (
+            {decodedCategoryFilter && (
               <Badge variant="secondary" className="flex items-center gap-1">
-                Category: {categoryFilter}
+                Category: {decodedCategoryFilter}
                 <button onClick={() => setCategoryFilter('')} className="ml-1 hover:bg-gray-300 rounded-full">
                   <X className="h-3 w-3" />
                 </button>
@@ -331,10 +358,12 @@ const AllBooks = () => {
           </div>
         )}
 
-        {/* Results Count */}
-        <div className="text-center text-sm text-muted-foreground">
-          Showing {filteredAndSortedBooks.length} of {books.length} books
-        </div>
+        {/* Results Count - only show when filters are active */}
+        {hasActiveFilters && (
+          <div className="text-center text-sm text-muted-foreground">
+            Showing {filteredAndSortedBooks.length} of {books.length} books
+          </div>
+        )}
       </div>
 
       {/* Progressive Loading Toggle */}
@@ -356,6 +385,7 @@ const AllBooks = () => {
           categoryFilter={categoryFilter}
           minPrice={minPrice}
           maxPrice={maxPrice}
+          isLatestReleasesPage={isLatestReleasesPage}
         />
       ) : (
         <div className="space-y-16">
@@ -375,11 +405,11 @@ const AllBooks = () => {
                       >
                         <Link to={`/book/${bookData.slug}`} state={{ book: bookData }}>
                           <img
-                            src={bookData.images?.[0] || "/img/book-categori/book-placeholder.png"}
+                            src={bookData.images?.[0] || "/img/book-categori/01.png"}
                             alt={bookData.title}
                             className="w-full h-56 object-cover rounded-md mb-3"
                             onError={(e) => {
-                              e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+                              e.currentTarget.src = '/img/book-categori/01.png';
                             }}
                           />
                         </Link>
@@ -441,109 +471,50 @@ const AllBooks = () => {
               </div>
             </div>
           ) : (
-            /* Show books by categories when no filters are active */
-            availableCategories.map((categoryName) => {
-              const categoryMap = {
-                'Books on Shirdi Sai Baba': '2',
-                'Other Religious Books': '3',
-                'Coffee Table Books and Paperbacks': '4', 
-                'Text Books': '5'
-              };
-              
-              const categoryId = categoryMap[categoryName];
-              const categoryBooks = books.filter(book => {
-                const bookCategoryId = book.category_id || book.category?.id;
-                return bookCategoryId === categoryId || 
-                       (book.category_id && book.category_id.startsWith(categoryId));
-              }).slice(0, 4); // Show only 4 books per category
+            /* Show only category headers when no filters are active */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              {availableCategories.map((categoryName) => {
+                const categoryMap = {
+                  'Books on Shirdi Sai Baba': '2',
+                  'Other Religious Books': '3',
+                  'Coffee Table Books and Paperbacks': '4', 
+                  'Text Books': '5'
+                };
+                
+                const categoryId = categoryMap[categoryName];
+                const categoryBooks = books.filter(book => {
+                  const bookCategoryId = book.category_id || book.category?.id;
+                  return bookCategoryId === categoryId || 
+                         (book.category_id && book.category_id.startsWith(categoryId));
+                });
 
-              if (categoryBooks.length === 0) return null;
+                const bookCount = categoryBooks.length;
 
-              return (
-                <section key={categoryName} className="scroll-mt-20">
-                  <div className="mb-8 flex justify-between items-center">
-                    <div>
-                      <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">{categoryName}</h2>
-                      <div className="w-16 h-1 bg-primary"></div>
-                    </div>
+                return (
+                  <div key={categoryName} className="bg-white p-6 rounded-xl shadow hover:shadow-md transition">
                     <Link 
-                      to={`/books?category=${encodeURIComponent(categoryName)}`} 
-                      className="text-primary hover:underline font-medium"
+                      to={`/books?category=${encodeURIComponent(categoryName)}`}
+                      className="block group"
                     >
-                      View All Books →
+                      <div className="text-center">
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-colors">
+                          <div className="w-8 h-8 bg-primary rounded-sm"></div>
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2 group-hover:text-primary transition-colors">
+                          {categoryName}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          {bookCount} {bookCount === 1 ? 'book' : 'books'} available
+                        </p>
+                        <div className="text-primary font-medium text-sm group-hover:underline">
+                          Browse Books →
+                        </div>
+                      </div>
                     </Link>
                   </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {categoryBooks.map((book) => {
-                      const bookData = book.title ? book : mapApiBookToBook(book);
-                      
-                      return (
-                        <div
-                          key={bookData.id}
-                          className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
-                        >
-                          <Link to={`/book/${bookData.slug}`} state={{ book: bookData }}>
-                            <img
-                              src={bookData.images?.[0] || "/img/book-categori/book-placeholder.png"}
-                              alt={bookData.title}
-                              className="w-full h-56 object-cover rounded-md mb-3"
-                              onError={(e) => {
-                                e.currentTarget.src = '/img/book-categori/book-placeholder.png';
-                              }}
-                            />
-                          </Link>
-
-                          <Link
-                            to={`/book/${bookData.slug}`}
-                            state={{ book: bookData }}
-                            className="font-semibold line-clamp-2 hover:text-primary transition-colors"
-                          >
-                            {bookData.title}
-                          </Link>
-
-                          <p className="text-sm text-gray-500">by {bookData.authors?.[0]?.name || 'Unknown Author'}</p>
-
-                          <div className="flex items-center space-x-1 text-yellow-400">
-                            {[...Array(5)].map((_, i) => (
-                              <Star
-                                key={i}
-                                className={`h-3 w-3 ${i < Math.floor(bookData.rating || 4) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
-                              />
-                            ))}
-                            <span className="text-xs text-gray-500">({bookData.rating || 4.0})</span>
-                          </div>
-
-                          <div className="flex flex-wrap gap-1 text-xs text-gray-500">
-                            <Badge variant="outline">{bookData.currency} {bookData.price}</Badge>
-                            {bookData.pages && (
-                              <Badge variant="outline">{bookData.pages} pages</Badge>
-                            )}
-                          </div>
-
-                          <div className="pt-2 flex justify-between items-center">
-                            <div>
-                              <p className="text-lg font-bold text-red-600">₹{parseFloat(String(bookData.price)).toFixed(2)}</p>
-                            </div>
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                addToCart(bookData);
-                                sonnerToast.success(`${bookData.title} added to cart`);
-                              }}
-                              className="shrink-0"
-                            >
-                              <ShoppingCart className="h-3 w-3 mr-1" />
-                              Add to Cart
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              );
-            })
+                );
+              })}
+            </div>
           )}
         </div>
       )}

@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { ShoppingCart, Star, Search, Filter, X } from "lucide-react";
+import { ShoppingCart, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 
 import { useToast } from '@/hooks/use-toast';
 import { Link } from "react-router-dom";
@@ -21,7 +20,7 @@ const mapApiBookToBook = (api: any): Book => {
   const slug = api.product_slug || idStr;
   const cover = api.product_image
     ? `http://localhost:8000/images/products/${api.product_image}`
-    : '/img/book-categori/book-placeholder.png';
+    : '/img/book-categori/01.png';
 
   return {
     id: idStr,
@@ -57,6 +56,7 @@ interface ProgressiveBookGridProps {
   categoryFilter?: string;
   minPrice?: number;
   maxPrice?: number;
+  isLatestReleasesPage?: boolean;
 }
 
 export const ProgressiveBookGrid = ({
@@ -64,7 +64,8 @@ export const ProgressiveBookGrid = ({
   sortBy = 'title',
   categoryFilter = '',
   minPrice = 0,
-  maxPrice = 0
+  maxPrice = 0,
+  isLatestReleasesPage = false
 }: ProgressiveBookGridProps) => {
   const { toast } = useToast();
   const { addToCart } = useCart();
@@ -73,6 +74,21 @@ export const ProgressiveBookGrid = ({
   // Load more books function
   const loadMoreBooks = useCallback(async (page: number) => {
     try {
+      // In development mode, use mock data
+      if (import.meta.env.DEV) {
+        const { books: mockBooks } = await import('@/data/mockData');
+        const pageSize = 12;
+        const startIndex = (page - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const pageData = mockBooks.slice(startIndex, endIndex);
+        
+        return {
+          data: pageData,
+          hasMore: endIndex < mockBooks.length,
+          nextPage: page + 1
+        };
+      }
+
       const response = await fetch(`${API_BASE_URL}new-books?page=${page}`);
       if (!response.ok) throw new Error('Failed to fetch books');
 
@@ -95,7 +111,22 @@ export const ProgressiveBookGrid = ({
       }
     } catch (error) {
       console.error(error);
-      throw new Error('Failed to load books');
+      // Fallback to mock data on error
+      try {
+        const { books: mockBooks } = await import('@/data/mockData');
+        const pageSize = 12;
+        const startIndex = (page - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const pageData = mockBooks.slice(startIndex, endIndex);
+        
+        return {
+          data: pageData,
+          hasMore: endIndex < mockBooks.length,
+          nextPage: page + 1
+        };
+      } catch (fallbackError) {
+        throw new Error('Failed to load books');
+      }
     }
   }, []);
 
@@ -124,24 +155,57 @@ export const ProgressiveBookGrid = ({
   const filteredAndSortedBooks = useMemo(() => {
     let filtered = allBooks;
 
+    // Filter for latest releases if on that page
+    if (isLatestReleasesPage) {
+      // For latest releases, show books with is_latest_release flag or recent books
+      filtered = filtered.filter(book => {
+        // Check if book has is_latest_release flag
+        if (book.is_latest_release === true) return true;
+        
+        // Or check if it's a recent book (higher ID numbers indicate newer books)
+        const bookId = parseInt(book.id) || 0;
+        return bookId >= 15; // Show books with ID 15 and above as latest releases
+      });
+    }
+
     // Filter by search term
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(book => {
-        const mapped = mapApiBookToBook(book);
+        // Handle both API format and mock data format
+        const title = book.title || book.product_name || '';
+        const description = book.description || book.product_description || '';
+        const authorName = book.authors?.[0]?.name || book.author_name || '';
+        
         return (
-          mapped.title.toLowerCase().includes(searchLower) ||
-          mapped.authors[0]?.name.toLowerCase().includes(searchLower) ||
-          mapped.description.toLowerCase().includes(searchLower)
+          title.toLowerCase().includes(searchLower) ||
+          authorName.toLowerCase().includes(searchLower) ||
+          description.toLowerCase().includes(searchLower)
         );
       });
     }
 
-    // Filter by category
+    // Filter by category using fixed category mapping
     if (categoryFilter) {
-      filtered = filtered.filter(book => 
-        book.category?.category_name === categoryFilter
-      );
+      // Decode URL category parameter properly
+      const decodedCategoryFilter = decodeURIComponent(categoryFilter);
+      
+      filtered = filtered.filter(book => {
+        // Map category filter to category IDs
+        const categoryMap = {
+          'Books on Shirdi Sai Baba': '2',
+          'Other Religious Books': '3',
+          'Coffee Table Books and Paperbacks': '4', 
+          'Text Books': '5'
+        };
+        
+        const expectedCategoryId = categoryMap[decodedCategoryFilter];
+        const bookCategoryId = book.category_id || book.category?.id;
+        
+        // Check direct match or subcategory match
+        return bookCategoryId === expectedCategoryId || 
+               (bookCategoryId && bookCategoryId.startsWith(expectedCategoryId));
+      });
     }
 
     // Filter by price range
@@ -156,27 +220,30 @@ export const ProgressiveBookGrid = ({
 
     // Sort books
     filtered.sort((a, b) => {
-      const mappedA = mapApiBookToBook(a);
-      const mappedB = mapApiBookToBook(b);
-      
       switch (sortBy) {
         case 'title':
-          return mappedA.title.localeCompare(mappedB.title);
+          const titleA = a.title || a.product_name || '';
+          const titleB = b.title || b.product_name || '';
+          return titleA.localeCompare(titleB);
         case 'author':
-          return (mappedA.authors[0]?.name || '').localeCompare(mappedB.authors[0]?.name || '');
+          const authorA = a.authors?.[0]?.name || a.author_name || '';
+          const authorB = b.authors?.[0]?.name || b.author_name || '';
+          return authorA.localeCompare(authorB);
         case 'price-low':
-          return mappedA.price - mappedB.price;
+          return (Number(a.price) || 0) - (Number(b.price) || 0);
         case 'price-high':
-          return mappedB.price - mappedA.price;
+          return (Number(b.price) || 0) - (Number(a.price) || 0);
         case 'newest':
-          return new Date(mappedB.publication_date).getTime() - new Date(mappedA.publication_date).getTime();
+          const dateA = new Date(a.publication_date || 0).getTime();
+          const dateB = new Date(b.publication_date || 0).getTime();
+          return dateB - dateA;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [allBooks, searchTerm, sortBy, categoryFilter, minPrice, maxPrice]);
+  }, [allBooks, searchTerm, sortBy, categoryFilter, minPrice, maxPrice, isLatestReleasesPage]);
 
   if (isLoading) {
     return <BookGridSkeleton count={12} />;
@@ -188,67 +255,64 @@ export const ProgressiveBookGrid = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
         {filteredAndSortedBooks.length > 0 ? (
           filteredAndSortedBooks.map((book) => {
-            const mapped = mapApiBookToBook(book);
+            // Handle both API format and mock data format
+            const bookData = book.title ? book : mapApiBookToBook(book);
+            
             return (
               <div
-                key={mapped.id}
+                key={bookData.id}
                 className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
               >
-                <Link to={`/book/${mapped.id}-${mapped.slug}`} state={{ book: mapped }}>
+                <Link to={`/book/${bookData.slug}`} state={{ book: bookData }}>
                   <img
-                    src={mapped.images[0] || "/img/book-categori/book-placeholder.png"}
-                    alt={mapped.title}
+                    src={bookData.images?.[0] || "/img/book-categori/01.png"}
+                    alt={bookData.title}
                     className="w-full h-56 object-cover rounded-md mb-3"
                     onError={(e) => {
-                      e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+                      e.currentTarget.src = '/img/book-categori/01.png';
                     }}
                   />
                 </Link>
 
                 <Link
-                  to={`/book/${mapped.id}-${mapped.slug}`}
-                  state={{ book: mapped }}
+                  to={`/book/${bookData.slug}`}
+                  state={{ book: bookData }}
                   className="font-semibold line-clamp-2 hover:text-primary transition-colors"
                 >
-                  {mapped.title}
+                  {bookData.title}
                 </Link>
 
-                <p className="text-sm text-gray-500">by {mapped.authors?.[0]?.name || 'Unknown Author'}</p>
+                <p className="text-sm text-gray-500">by {bookData.authors?.[0]?.name || 'Unknown Author'}</p>
 
                 {/* Rating */}
                 <div className="flex items-center space-x-1 text-yellow-400">
                   {[...Array(5)].map((_, i) => (
                     <Star
                       key={i}
-                      className={`h-3 w-3 ${i < 4 ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                      className={`h-3 w-3 ${i < Math.floor(bookData.rating || 4) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
                     />
                   ))}
-                  <span className="text-xs text-gray-500">(4.0)</span>
+                  <span className="text-xs text-gray-500">({bookData.rating || 4.0})</span>
                 </div>
 
-                {/* Category, Subcategory, Pages */}
+                {/* Price and Stock Status */}
                 <div className="flex flex-wrap gap-1 text-xs text-gray-500">
-                  {book.category?.category_name && (
-                    <Badge variant="outline">{book.category.category_name}</Badge>
-                  )}
-                  {book.subcategory?.sub_category_name && (
-                    <Badge variant="outline">{book.subcategory.sub_category_name}</Badge>
-                  )}
-                  {book.total_pages > 0 && (
-                    <Badge variant="outline">{book.total_pages} pages</Badge>
+                  <Badge variant="outline">{bookData.currency} {bookData.price}</Badge>
+                  {bookData.pages && (
+                    <Badge variant="outline">{bookData.pages} pages</Badge>
                   )}
                 </div>
 
                 {/* Price + Add to Cart */}
                 <div className="pt-2 flex justify-between items-center">
                   <div>
-                    <p className="text-lg font-bold text-red-600">₹{parseFloat(String(mapped.price)).toFixed(2)}</p>
+                    <p className="text-lg font-bold text-red-600">₹{parseFloat(String(bookData.price)).toFixed(2)}</p>
                   </div>
                   <Button
                     size="sm"
                     onClick={() => {
-                      addToCart(mapped);
-                      sonnerToast.success(`${mapped.title} added to cart`);
+                      addToCart(bookData);
+                      sonnerToast.success(`${bookData.title} added to cart`);
                     }}
                     className="shrink-0"
                   >

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test React App Functionality</title>
+</head>
+<body>
+    <h1>Test Instructions</h1>
+    
+    <h2>1. Test Books Loading & Images</h2>
+    <p>✅ Open: <a href="http://localhost:5174" target="_blank">http://localhost:5174</a></p>
+    <p>✅ Check: Books should load with proper images</p>
+    <p>✅ Image URL format should be: https://sterlingpublishers.in/publishing/images/products/[filename].jpg</p>
+    
+    <h2>2. Test Cart Functionality</h2>
+    <p>✅ Add a book to cart</p>
+    <p>✅ Check localStorage in browser dev tools (Application > Local Storage)</p>
+    <p>✅ Key should be: "bookstore_cart"</p>
+    <p>✅ Refresh page and verify cart persists</p>
+    
+    <h2>3. Test Authentication</h2>
+    <p>✅ Login with: <strong>338@Mailinator.com</strong> / <strong>12345678</strong></p>
+    <p>✅ Check if token is stored in localStorage</p>
+    
+    <h2>4. Test Order Placement</h2>
+    <p>✅ Go to checkout</p>
+    <p>✅ Fill shipping details</p>
+    <p>✅ Place order</p>
+    <p>✅ Check if order is created successfully</p>
+    
+    <h2>Debug Console Commands</h2>
+    <pre>
+// Check localStorage cart
+console.log('Cart:', localStorage.getItem('bookstore_cart'));
+
+// Check auth token
+console.log('Token:', localStorage.getItem('auth_token'));
+
+// Test API directly
+fetch('https://sterlingpublishers.in/publishing/api/new-books')
+  .then(r => r.json())
+  .then(d => console.log('Books API:', d));
+    </pre>
+</body>
+</html>

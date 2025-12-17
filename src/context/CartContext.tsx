@@ -49,8 +49,10 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       const { book, quantity } = action.payload;
       const existingItem = state.items.find(item => item.book.id === book.id);
 
+      console.log('➕ ADD_TO_CART action:', { bookTitle: book.title, quantity, existingItem: !!existingItem });
+
       if (existingItem) {
-        return {
+        const newState = {
           ...state,
           items: state.items.map(item =>
             item.book.id === book.id
@@ -59,13 +61,17 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           ),
           total: state.total + book.price * quantity
         };
+        console.log('📊 Updated cart state (existing item):', { itemCount: newState.items.length, total: newState.total });
+        return newState;
       }
 
-      return {
+      const newState = {
         ...state,
         items: [...state.items, { book, quantity }],
         total: state.total + book.price * quantity
       };
+      console.log('📊 Updated cart state (new item):', { itemCount: newState.items.length, total: newState.total });
+      return newState;
     }
 
     case 'REMOVE_FROM_CART': {
@@ -96,6 +102,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
     }
 
     case 'CLEAR_CART':
+      console.log('🗑️ CLEAR_CART action dispatched');
       return {
         ...state,
         items: [],
@@ -196,8 +203,8 @@ const normalizeToBook = (input: any): Book => {
   const priceNum = Number(api.price) || 0;
   const idStr = api.id != null ? String(api.id) : (api.slug || '0');
   const slug = api.product_slug || api.slug || idStr;
-  // Normalize base URL (remove trailing /api or trailing slash) then build full path with a single slash
-  const base = API_BASE_URL.replace(/\/api\/?$/, '').replace(/\/$/, '');
+  // Fix image URL - use the correct base URL for your live server
+  const base = 'https://sterlingpublishers.in/publishing';
   const cover = api.product_image
     ? `${base}/images/products/${api.product_image}`
     : '/img/book-categori/book-placeholder.png';
@@ -242,24 +249,27 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [state, dispatch] = useReducer(cartReducer, { 
     items: [], 
     total: 0,
-    isLoading: false,
+    isLoading: true, // Start with loading true
     error: null,
     isSynced: false
   });
 
-  // Load cart on mount - fetch from API if authenticated, otherwise from localStorage
+  // Load cart on mount - always use localStorage for persistence
   useEffect(() => {
     const token = getToken();
     
-    if (token) {
-      // User is authenticated, fetch cart from API
-      fetchCart();
-    } else {
-      // Guest user, load from localStorage
-      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-      if (savedCart) {
-        try {
-          const parsedCart = JSON.parse(savedCart);
+    console.log('🔄 Loading cart on mount...', { hasToken: !!token });
+    
+    // Always load from localStorage for persistence
+    const savedCart = localStorage.getItem(CART_STORAGE_KEY);
+    console.log('📦 Saved cart from localStorage:', savedCart);
+    
+    if (savedCart) {
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        console.log('📋 Parsed cart:', parsedCart);
+        
+        if (parsedCart.items && Array.isArray(parsedCart.items)) {
           dispatch({ type: 'CLEAR_CART' });
           parsedCart.items.forEach((item: any) => {
             const book = normalizeToBook(item.book);
@@ -269,64 +279,57 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
               payload: { book, quantity: qty }
             });
           });
-        } catch (err) {
-          console.error('Failed to parse saved cart:', err);
+          console.log('✅ Cart loaded from localStorage with', parsedCart.items.length, 'items');
         }
+      } catch (err) {
+        console.error('❌ Failed to parse saved cart:', err);
       }
+    } else {
+      console.log('📭 No saved cart found in localStorage');
     }
+    
+    // Mark loading as complete
+    dispatch({ type: 'SET_LOADING', payload: false });
+    
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Save cart to localStorage only for guest users - watch specific values to prevent infinite loop
+  // Save cart to localStorage - always save for persistence
   useEffect(() => {
-    const token = getToken();
-    
-    // Only save to localStorage if user is not authenticated
-    if (!token && !state.isSynced && state.items.length >= 0) {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: state.items, total: state.total }));
-    }
-  }, [state.items, state.total, state.isSynced]); // Only watch specific values, not entire state
+    console.log('💾 Saving cart to localStorage:', { itemCount: state.items.length, total: state.total });
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: state.items, total: state.total }));
+  }, [state.items, state.total]); // Only watch specific values, not entire state
 
   const addToCart = async (bookInput: any, quantity = 1) => {
     const book = normalizeToBook(bookInput);
     const token = getToken();
 
-    // In development mode, always use localStorage to avoid API issues
-    if (import.meta.env.DEV) {
-      dispatch({ type: 'ADD_TO_CART', payload: { book, quantity } });
-      toast.success('Added to cart');
-      return;
-    }
+    console.log('🛒 Adding to cart:', { 
+      bookTitle: book.title, 
+      bookId: book.id,
+      quantity, 
+      hasToken: !!token,
+      bookImage: book.images[0]
+    });
 
-    // If user is authenticated, use API
+    // Always use localStorage for immediate response and persistence
+    dispatch({ type: 'ADD_TO_CART', payload: { book, quantity } });
+    toast.success(`Added "${book.title}" to cart`);
+    console.log('✅ Added to cart successfully');
+    console.log('📊 Current cart state after add:', { 
+      itemCount: state.items.length + 1, 
+      newTotal: state.total + (book.price * quantity)
+    });
+
+    // If user is authenticated, also sync with API
     if (token) {
-      // Optimistic update
-      const previousState = { ...state };
-      dispatch({ type: 'ADD_TO_CART', payload: { book, quantity } });
-
       try {
-        const apiCart = await CartService.addToCart(token, book.id, quantity);
-        const localCart = convertApiCartToLocal(apiCart);
-        
-        dispatch({ 
-          type: 'SET_CART', 
-          payload: localCart 
-        });
-
-        toast.success('Added to cart');
+        await CartService.addToCart(token, book.id, quantity);
+        console.log('📡 Cart synced with API');
       } catch (error) {
-        // Rollback on error
-        dispatch({ 
-          type: 'SET_CART', 
-          payload: { items: previousState.items, total: previousState.total } 
-        });
-        
-        handleApiError(error, true);
+        console.warn('Failed to sync cart with API:', error);
+        // Don't show error to user, cart is still saved locally
       }
-    } else {
-      // Guest user - use localStorage
-      dispatch({ type: 'ADD_TO_CART', payload: { book, quantity } });
-      toast.success('Added to cart');
     }
   };
 
@@ -414,7 +417,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const clearCart = () => {
+    console.log('🗑️ Clearing cart...');
     dispatch({ type: 'CLEAR_CART' });
+    
+    // Also clear localStorage to prevent cart from reloading
+    localStorage.removeItem(CART_STORAGE_KEY);
+    console.log('✅ Cart cleared from both state and localStorage');
   };
 
   const fetchCart = async () => {
@@ -445,57 +453,62 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const token = getToken();
     
     if (!token) {
+      console.warn('⚠️ No token available for cart sync');
       return;
     }
 
-    // In development mode, just keep the local cart and mark as synced
-    if (import.meta.env.DEV) {
-      dispatch({ type: 'SET_SYNCED', payload: true });
-      return;
-    }
-
-    // Get guest cart items from localStorage
-    const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-    if (!savedCart) {
-      // No guest cart to sync, just fetch server cart
-      await fetchCart();
+    if (state.items.length === 0) {
+      console.warn('⚠️ No items to sync');
       return;
     }
 
     try {
-      const parsedCart = JSON.parse(savedCart);
-      
-      if (!parsedCart.items || parsedCart.items.length === 0) {
-        // Empty guest cart, just fetch server cart
-        await fetchCart();
-        return;
-      }
-
+      console.log(`🔄 Starting cart sync with ${state.items.length} items...`);
       dispatch({ type: 'SET_LOADING', payload: true });
 
-      // Convert guest cart items to API format
-      const guestItems = parsedCart.items.map((item: CartItem) => ({
-        productId: item.book.id,
-        quantity: item.quantity
-      }));
+      // Clear any existing cart in API first
+      try {
+        await CartService.clearCart(token);
+        console.log('✅ Cleared existing API cart');
+      } catch (error) {
+        console.warn('Failed to clear API cart:', error);
+        // Continue anyway
+      }
 
-      // Merge guest cart with server cart
-      const mergedCart = await CartService.mergeGuestCart(token, guestItems);
-      const localCart = convertApiCartToLocal(mergedCart);
+      // Add all localStorage items to API cart
+      let syncedCount = 0;
+      const errors: string[] = [];
       
-      dispatch({ 
-        type: 'SET_CART', 
-        payload: localCart 
-      });
+      for (const item of state.items) {
+        try {
+          await CartService.addToCart(token, item.book.id, item.quantity);
+          console.log(`📡 Synced ${item.book.title} to API cart`);
+          syncedCount++;
+        } catch (error) {
+          const errorMsg = `Failed to sync ${item.book.title}`;
+          console.error(errorMsg, error);
+          errors.push(errorMsg);
+        }
+      }
 
-      // Clear localStorage cart after successful merge
-      localStorage.removeItem(CART_STORAGE_KEY);
+      if (syncedCount === 0) {
+        throw new Error('Failed to sync any items to cart. Please try again.');
+      }
+
+      if (errors.length > 0 && errors.length < state.items.length) {
+        console.warn(`⚠️ Partial sync: ${syncedCount}/${state.items.length} items synced`);
+      }
+
+      dispatch({ type: 'SET_SYNCED', payload: true });
+      console.log(`✅ Cart fully synced with API (${syncedCount}/${state.items.length} items)`);
     } catch (error) {
-      const errorMessage = handleApiError(error, true);
+      const errorMessage = handleApiError(error, false); // Don't show toast here
       dispatch({ type: 'SET_ERROR', payload: errorMessage });
-      
-      // On error, still try to fetch server cart
-      await fetchCart();
+      console.error('❌ Failed to sync cart with API:', error);
+      // Re-throw the error so checkout knows sync failed
+      throw error;
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 

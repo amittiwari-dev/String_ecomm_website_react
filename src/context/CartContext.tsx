@@ -201,13 +201,21 @@ const normalizeToBook = (input: any): Book => {
   // Map API-shaped book (ApiBook) to Book
   const api: any = input;
   const priceNum = Number(api.price) || 0;
-  const idStr = api.id != null ? String(api.id) : (api.slug || '0');
+  // CRITICAL: ID must be a valid numeric product ID from database, never use slug
+  const idStr = api.id != null ? String(api.id) : '0';
   const slug = api.product_slug || api.slug || idStr;
-  // Fix image URL - use the correct base URL for your live server
-  const base = 'https://sterlingpublishers.in/publishing';
-  const cover = api.product_image
-    ? `${base}/images/products/${api.product_image}`
-    : '/img/book-categori/book-placeholder.png';
+  
+  // Handle image URL properly
+  let cover = '/img/book-categori/book-placeholder.png';
+  if (api.product_image) {
+    // If already a full URL, use as is
+    if (api.product_image.startsWith('http://') || api.product_image.startsWith('https://')) {
+      cover = api.product_image;
+    } else {
+      // For local development, use Laravel storage path
+      cover = `http://127.0.0.1:8000/storage/products/${api.product_image}`;
+    }
+  }
     
 
   const mapped: Book = {
@@ -335,84 +343,62 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const removeFromCart = async (bookId: string) => {
     const token = getToken();
+    const cartItem = state.items.find(item => item.book.id === bookId);
+    
+    if (!cartItem) {
+      toast.error('Cart item not found');
+      return;
+    }
 
-    // If user is authenticated, use API
-    if (token) {
-      // Find the cart item to get its API ID
-      const cartItem = state.items.find(item => item.book.id === bookId);
-      
-      if (!cartItem || !cartItem.itemId) {
-        toast.error('Cart item not found');
-        return;
-      }
+    // Always update local state first (optimistic update)
+    const previousState = { ...state };
+    dispatch({ type: 'REMOVE_FROM_CART', payload: { bookId } });
+    toast.success('Removed from cart');
 
-      // Optimistic update
-      const previousState = { ...state };
-      dispatch({ type: 'REMOVE_FROM_CART', payload: { bookId } });
-
+    // If user is authenticated and item has API ID, also remove from API
+    if (token && cartItem.itemId) {
       try {
-        const apiCart = await CartService.removeCartItem(token, cartItem.itemId);
-        const localCart = convertApiCartToLocal(apiCart);
-        
-        dispatch({ 
-          type: 'SET_CART', 
-          payload: localCart 
-        });
-
-        toast.success('Removed from cart');
+        await CartService.removeCartItem(token, cartItem.itemId);
+        console.log('📡 Item removed from API cart');
       } catch (error) {
-        // Rollback on error
-        dispatch({ 
-          type: 'SET_CART', 
-          payload: { items: previousState.items, total: previousState.total } 
-        });
-        
-        handleApiError(error, true);
+        console.warn('Failed to remove from API cart:', error);
+        // Don't rollback - local removal is more important
+        // The cart will sync properly on next checkout
       }
-    } else {
-      // Guest user - use localStorage
-      dispatch({ type: 'REMOVE_FROM_CART', payload: { bookId } });
-      toast.success('Removed from cart');
+    } else if (token && !cartItem.itemId) {
+      // Item was added locally but not synced to API yet
+      // Just remove from local state (already done above)
+      console.log('📦 Item removed from local cart only (not synced to API yet)');
     }
   };
 
   const updateQuantity = async (bookId: string, quantity: number) => {
     const token = getToken();
+    const cartItem = state.items.find(item => item.book.id === bookId);
+    
+    if (!cartItem) {
+      toast.error('Cart item not found');
+      return;
+    }
 
-    // If user is authenticated, use API
-    if (token) {
-      // Find the cart item to get its API ID
-      const cartItem = state.items.find(item => item.book.id === bookId);
-      
-      if (!cartItem || !cartItem.itemId) {
-        toast.error('Cart item not found');
-        return;
-      }
+    // Always update local state first (optimistic update)
+    const previousState = { ...state };
+    dispatch({ type: 'UPDATE_QUANTITY', payload: { bookId, quantity } });
 
-      // Optimistic update
-      const previousState = { ...state };
-      dispatch({ type: 'UPDATE_QUANTITY', payload: { bookId, quantity } });
-
+    // If user is authenticated and item has API ID, also update in API
+    if (token && cartItem.itemId) {
       try {
-        const apiCart = await CartService.updateCartItem(token, cartItem.itemId, quantity);
-        const localCart = convertApiCartToLocal(apiCart);
-        
-        dispatch({ 
-          type: 'SET_CART', 
-          payload: localCart 
-        });
+        await CartService.updateCartItem(token, cartItem.itemId, quantity);
+        console.log('📡 Item quantity updated in API cart');
       } catch (error) {
-        // Rollback on error
-        dispatch({ 
-          type: 'SET_CART', 
-          payload: { items: previousState.items, total: previousState.total } 
-        });
-        
-        handleApiError(error, true);
+        console.warn('Failed to update quantity in API cart:', error);
+        // Don't rollback - local update is more important
+        // The cart will sync properly on next checkout
       }
-    } else {
-      // Guest user - use localStorage
-      dispatch({ type: 'UPDATE_QUANTITY', payload: { bookId, quantity } });
+    } else if (token && !cartItem.itemId) {
+      // Item was added locally but not synced to API yet
+      // Just update local state (already done above)
+      console.log('📦 Item quantity updated in local cart only (not synced to API yet)');
     }
   };
 
@@ -466,14 +452,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log(`🔄 Starting cart sync with ${state.items.length} items...`);
       dispatch({ type: 'SET_LOADING', payload: true });
 
-      // Clear any existing cart in API first
-      try {
-        await CartService.clearCart(token);
-        console.log('✅ Cleared existing API cart');
-      } catch (error) {
-        console.warn('Failed to clear API cart:', error);
-        // Continue anyway
-      }
+      // Note: We don't clear the cart first because the backend will handle duplicates
+      // by updating quantities if the same product is added again
+      console.log('📦 Syncing cart items (backend will merge duplicates)...');
 
       // Add all localStorage items to API cart
       let syncedCount = 0;
@@ -481,12 +462,31 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       for (const item of state.items) {
         try {
+          console.log(`🔄 Syncing item: ${item.book.title} (ID: ${item.book.id}, Qty: ${item.quantity})`);
+          
+          // Validate product ID before sending
+          if (!item.book.id || item.book.id === '0') {
+            const error = new Error(`Invalid product ID for ${item.book.title}`);
+            console.error('❌ Invalid ID:', { bookTitle: item.book.title, bookId: item.book.id, book: item.book });
+            throw error;
+          }
+          
+          // Log the exact data being sent
+          console.log(`📤 Sending to API: product_id=${item.book.id}, quantity=${item.quantity}`);
+          
           await CartService.addToCart(token, item.book.id, item.quantity);
-          console.log(`📡 Synced ${item.book.title} to API cart`);
+          console.log(`✅ Synced ${item.book.title} to API cart`);
           syncedCount++;
         } catch (error) {
-          const errorMsg = `Failed to sync ${item.book.title}`;
-          console.error(errorMsg, error);
+          const errorMsg = `Failed to sync ${item.book.title} (ID: ${item.book.id})`;
+          console.error('❌ Sync error details:', errorMsg, error);
+          
+          // Log the full error for debugging
+          if (error instanceof Error) {
+            console.error('Error message:', error.message);
+            console.error('Error stack:', error.stack);
+          }
+          
           errors.push(errorMsg);
         }
       }

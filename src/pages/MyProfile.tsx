@@ -24,7 +24,7 @@ const MyProfile = () => {
   // Authentication is handled by RouteWrapper
 
   // Fetch logged-in profile with statistics
-  const fetchProfile = async (showToast = true) => {
+  const fetchProfile = async (showToast = true, retryCount = 0) => {
     if (!authState.token) {
       setError('Authentication required. Please log in to view your profile.');
       return;
@@ -34,23 +34,48 @@ const MyProfile = () => {
     setError(null);
     
     try {
-      // Fetch profile and statistics in parallel
-      const [profileData, statisticsData, ordersData] = await Promise.all([
+      // Fetch profile, statistics, and orders in parallel with individual error handling
+      const [profileResult, statisticsResult, ordersResult] = await Promise.allSettled([
         ProfileService.getProfile(authState.token),
         ProfileService.getProfileStatistics(authState.token),
-        OrderService.getOrders(authState.token, 1).catch(() => ({ data: [] })) // Don't fail if orders fail
+        OrderService.getOrders(authState.token, 1)
       ]);
 
-      setProfile(profileData);
-      setStatistics(statisticsData);
-      setFormData({
-        name: profileData.name,
-        email: profileData.email,
-      });
+      // Handle profile data (required)
+      if (profileResult.status === 'fulfilled') {
+        setProfile(profileResult.value);
+        setFormData({
+          name: profileResult.value.name,
+          email: profileResult.value.email,
+        });
+      } else {
+        throw profileResult.reason;
+      }
 
-      // Set recent orders (last 5)
-      if (ordersData.data) {
-        setRecentOrders(ordersData.data.slice(0, 5));
+      // Handle statistics data with fallback values
+      if (statisticsResult.status === 'fulfilled') {
+        setStatistics(statisticsResult.value);
+      } else {
+        console.warn('Failed to load statistics, using fallback values:', statisticsResult.reason);
+        // Provide fallback statistics from profile data or defaults
+        const profileData = profileResult.value;
+        setStatistics({
+          totalOrders: profileData.total_orders || 0,
+          totalSpent: profileData.total_spent || 0,
+          pendingOrders: profileData.pending_orders || 0,
+          averageOrderValue: profileData.average_order_value || 0,
+          memberSince: profileData.member_since || profileData.created_at || new Date().toISOString(),
+          favoriteCategories: profileData.favorite_categories || [],
+          lastOrderDate: profileData.last_order_date
+        });
+      }
+
+      // Handle orders data with fallback
+      if (ordersResult.status === 'fulfilled' && ordersResult.value.data) {
+        setRecentOrders(ordersResult.value.data.slice(0, 5));
+      } else {
+        console.warn('Failed to load recent orders:', ordersResult.status === 'rejected' ? ordersResult.reason : 'No data');
+        setRecentOrders([]);
       }
 
       if (showToast) {
@@ -61,15 +86,34 @@ const MyProfile = () => {
       const errorMessage = error.message || 'Failed to load profile data';
       setError(errorMessage);
       
+      // Handle authentication errors
+      if (errorMessage.includes('session has expired') || errorMessage.includes('Authentication required') || errorMessage.includes('Unauthenticated')) {
+        if (showToast) {
+          toast.error('Session expired', {
+            description: 'Please log in again to continue',
+          });
+        }
+        navigate('/login', { replace: true });
+        return;
+      }
+
+      // Retry logic for network errors (max 2 retries)
+      if (retryCount < 2 && (errorMessage.includes('network') || errorMessage.includes('fetch') || errorMessage.includes('timeout'))) {
+        console.log(`Retrying profile fetch (attempt ${retryCount + 1}/2)...`);
+        setTimeout(() => {
+          fetchProfile(false, retryCount + 1);
+        }, 1000 * (retryCount + 1)); // Exponential backoff
+        return;
+      }
+      
       if (showToast) {
         toast.error('Failed to load profile', {
           description: errorMessage,
+          action: {
+            label: 'Retry',
+            onClick: () => fetchProfile(true, 0)
+          }
         });
-      }
-
-      // Handle authentication errors
-      if (errorMessage.includes('session has expired') || errorMessage.includes('Authentication required')) {
-        navigate('/login', { replace: true });
       }
     } finally {
       setIsLoading(false);
@@ -270,7 +314,9 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Total Orders</p>
-                  <p className="text-2xl font-bold">{statistics?.totalOrders || profile.total_orders || 0}</p>
+                  <p className="text-2xl font-bold">
+                    {statistics?.totalOrders ?? profile?.total_orders ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -282,7 +328,9 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Total Spent</p>
-                  <p className="text-2xl font-bold">₹{(statistics?.totalSpent || profile.total_spent || 0).toFixed(2)}</p>
+                  <p className="text-2xl font-bold">
+                    ₹{Number(statistics?.totalSpent ?? profile?.total_spent ?? 0).toFixed(2)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -294,7 +342,9 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Pending Orders</p>
-                  <p className="text-2xl font-bold">{statistics?.pendingOrders || profile.pending_orders || 0}</p>
+                  <p className="text-2xl font-bold">
+                    {statistics?.pendingOrders ?? profile?.pending_orders ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -306,7 +356,9 @@ const MyProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Avg Order Value</p>
-                  <p className="text-2xl font-bold">₹{(statistics?.averageOrderValue || profile.average_order_value || 0).toFixed(2)}</p>
+                  <p className="text-2xl font-bold">
+                    ₹{Number(statistics?.averageOrderValue ?? profile?.average_order_value ?? 0).toFixed(2)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -465,10 +517,10 @@ const MyProfile = () => {
                   <ShoppingBag className="h-5 w-5 text-primary" />
                   Favorite Categories
                 </h3>
-                {statistics.favoriteCategories.length > 0 ? (
+                {statistics?.favoriteCategories && statistics.favoriteCategories.length > 0 ? (
                   <div className="space-y-2">
                     {statistics.favoriteCategories.map((category, index) => (
-                      <div key={category} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div key={`${category}-${index}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <span className="font-medium">{category}</span>
                         <Badge variant="secondary">#{index + 1}</Badge>
                       </div>
@@ -497,14 +549,16 @@ const MyProfile = () => {
                       <span className="text-sm text-gray-600">Member Since</span>
                     </div>
                     <span className="font-medium">
-                      {new Date(statistics.memberSince).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                      })}
+                      {statistics?.memberSince 
+                        ? new Date(statistics.memberSince).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                          })
+                        : 'N/A'}
                     </span>
                   </div>
                   
-                  {statistics.lastOrderDate && (
+                  {statistics?.lastOrderDate && (
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 text-gray-600" />
@@ -514,6 +568,7 @@ const MyProfile = () => {
                         {new Date(statistics.lastOrderDate).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
+                          year: 'numeric',
                         })}
                       </span>
                     </div>
@@ -524,7 +579,9 @@ const MyProfile = () => {
                       <DollarSign className="h-4 w-4 text-gray-600" />
                       <span className="text-sm text-gray-600">Avg Order</span>
                     </div>
-                    <span className="font-medium">₹{statistics.averageOrderValue.toFixed(2)}</span>
+                    <span className="font-medium">
+                      ₹{Number(statistics?.averageOrderValue ?? 0).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -610,7 +667,7 @@ const MyProfile = () => {
                         {' • '}
                         {order.items?.length || 0} item(s)
                         {' • '}
-                        <span className="font-semibold">₹{order.total.toFixed(2)}</span>
+                        <span className="font-semibold">₹{Number(order.total || 0).toFixed(2)}</span>
                       </p>
                     </div>
                     <Link to="/order-history">

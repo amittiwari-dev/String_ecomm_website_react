@@ -650,8 +650,24 @@ export const OrderService = {
       },
     }, READ_RETRY_CONFIG);
 
-    // Handle your live server response format - the backend now returns the correct structure
-    return data;
+    // Normalize order data - ensure product images have full URLs
+    const base = 'https://sterlingpublishers.in/publishing';
+    const normalizedData = {
+      ...data,
+      data: data.data.map((order: any) => ({
+        ...order,
+        items: order.items?.map((item: any) => ({
+          ...item,
+          product_image: item.product_image 
+            ? (item.product_image.startsWith('http') 
+                ? item.product_image 
+                : `${base}/images/products/${item.product_image}`)
+            : '/img/book-categori/01.png'
+        })) || []
+      }))
+    };
+
+    return normalizedData;
   },
 
   // Get specific order by ID
@@ -664,8 +680,31 @@ export const OrderService = {
       },
     }, READ_RETRY_CONFIG);
 
-    // Handle your live server response format
-    return data.order || data;
+    // Handle your live server response format and normalize image URLs
+    const order = data.order || data;
+    const base = 'https://sterlingpublishers.in/publishing';
+    
+    // Normalize product images in order items
+    if (order.items) {
+      order.items = order.items.map((item: any) => {
+        // Use product_image from the item first, then fall back to product.product_image
+        let imageUrl = item.product_image || item.product?.product_image;
+        
+        if (imageUrl && !imageUrl.startsWith('http')) {
+          imageUrl = `${base}/images/products/${imageUrl}`;
+        } else if (!imageUrl) {
+          imageUrl = '/img/book-categori/01.png';
+        }
+        
+        return {
+          ...item,
+          product_image: imageUrl,
+          product_name: item.product_name || item.product?.product_name || 'Unknown Product'
+        };
+      });
+    }
+
+    return order;
   },
 
   // Get order statistics
@@ -707,8 +746,8 @@ export const ProfileService = {
     }
 
     try {
-      // Get user profile from auth/me endpoint
-      const userData = await authenticatedFetchWithRetry<any>(`${API_BASE_URL}/auth/me`, {
+      // Get user profile from profile endpoint
+      const userData = await authenticatedFetchWithRetry<any>(`${API_BASE_URL}/profile`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -811,61 +850,70 @@ export const ProfileService = {
   // Get profile statistics
   getProfileStatistics: async (token: string): Promise<ProfileStatistics> => {
     if (!token) {
-      throw new Error('Authentication required. Please log in to view statistics.');
-    }
-
-    // Mock data for development
-    if (import.meta.env.DEV) {
-      await new Promise(resolve => setTimeout(resolve, 400));
-      
-      return {
-        totalOrders: 2,
-        totalSpent: 2148.00,
-        pendingOrders: 1,
-        averageOrderValue: 1074.00,
-        memberSince: '2023-12-01T00:00:00Z',
-        favoriteCategories: ['Books on Shirdi Sai Baba', 'Other Religious Books', 'Coffee Table Books'],
-        lastOrderDate: '2024-01-20T15:45:00Z'
-      };
+      throw new ApiError('Authentication required. Please log in to view statistics.', 401);
     }
 
     try {
-      const profile = await ProfileService.getProfile(token);
-      const orders = await OrderService.getOrders(token, 1);
+      // Fetch profile and orders in parallel with individual error handling
+      const [profileResult, ordersResult] = await Promise.allSettled([
+        ProfileService.getProfile(token),
+        OrderService.getOrders(token, 1)
+      ]);
+
+      // Get profile data or use defaults
+      const profile = profileResult.status === 'fulfilled' 
+        ? profileResult.value 
+        : null;
+
+      // Get orders data or use empty array
+      const orders = ordersResult.status === 'fulfilled' 
+        ? ordersResult.value 
+        : { data: [] };
       
       // Calculate favorite categories from order history
       const categoryCount: Record<string, number> = {};
-      orders.data.forEach(order => {
-        order.items?.forEach(item => {
-          if (item.book?.category) {
-            categoryCount[item.book.category] = (categoryCount[item.book.category] || 0) + 1;
-          }
+      if (orders.data && orders.data.length > 0) {
+        orders.data.forEach(order => {
+          order.items?.forEach(item => {
+            if (item.book?.category) {
+              categoryCount[item.book.category] = (categoryCount[item.book.category] || 0) + 1;
+            }
+          });
         });
-      });
+      }
 
       const favoriteCategories = Object.entries(categoryCount)
         .sort(([,a], [,b]) => b - a)
         .slice(0, 3)
         .map(([category]) => category);
 
-      const lastOrderDate = orders.data.length > 0 
+      const lastOrderDate = orders.data && orders.data.length > 0 
         ? orders.data[0].created_at 
         : undefined;
 
+      // Return statistics with fallback values
       return {
-        totalOrders: profile.total_orders || 0,
-        totalSpent: profile.total_spent || 0,
-        pendingOrders: profile.pending_orders || 0,
-        averageOrderValue: profile.average_order_value || 0,
-        memberSince: profile.member_since || profile.created_at || new Date().toISOString(),
+        totalOrders: profile?.total_orders ?? 0,
+        totalSpent: profile?.total_spent ?? 0,
+        pendingOrders: profile?.pending_orders ?? 0,
+        averageOrderValue: profile?.average_order_value ?? 0,
+        memberSince: profile?.member_since ?? profile?.created_at ?? new Date().toISOString(),
         favoriteCategories,
         lastOrderDate,
       };
     } catch (error) {
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error('Failed to load profile statistics.');
+      console.error('Failed to load profile statistics:', error);
+      
+      // Return default statistics instead of throwing
+      return {
+        totalOrders: 0,
+        totalSpent: 0,
+        pendingOrders: 0,
+        averageOrderValue: 0,
+        memberSince: new Date().toISOString(),
+        favoriteCategories: [],
+        lastOrderDate: undefined,
+      };
     }
   },
 };

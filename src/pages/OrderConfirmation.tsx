@@ -24,50 +24,57 @@ const OrderConfirmation = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchOrderDetails = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+  const fetchOrderDetails = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-        // First, try to get order from location state (passed from checkout)
-        if (location.state?.order) {
-          setOrder(location.state.order);
-          setIsLoading(false);
-          return;
-        }
-
-        // If no order in state, try to get orderId from URL params
-        const orderId = searchParams.get('orderId') || location.state?.orderId;
-        
-        if (!orderId) {
-          setError('No order information found');
-          setIsLoading(false);
-          return;
-        }
-
-        // Check if user is authenticated
-        if (!authState.isAuthenticated || !authState.token) {
-          setError('Please login to view order details');
-          setIsLoading(false);
-          return;
-        }
-
-        // Fetch order details from API
-        const orderData = await OrderService.getOrderById(authState.token, orderId);
-        setOrder(orderData);
-      } catch (err) {
-        console.error('Failed to fetch order details:', err);
-        const errorMessage = err instanceof Error ? err.message : 'Failed to load order details';
-        setError(errorMessage);
-        toast.error('Failed to load order', {
-          description: errorMessage,
-        });
-      } finally {
+      // First, try to get order from location state (passed from checkout)
+      if (location.state?.order) {
+        setOrder(location.state.order);
         setIsLoading(false);
+        return;
       }
-    };
 
+      // If no order in state, try to get orderId from URL params
+      const orderId = searchParams.get('orderId') || location.state?.orderId;
+      
+      if (!orderId) {
+        setError('No order information found. Please provide a valid order ID.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if user is authenticated
+      if (!authState.isAuthenticated || !authState.token) {
+        setError('Please login to view order details');
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch order details from API
+      const orderData = await OrderService.getOrderById(authState.token, orderId);
+      
+      if (!orderData) {
+        setError('Order not found. The order may have been deleted or you may not have permission to view it.');
+        setIsLoading(false);
+        return;
+      }
+      
+      setOrder(orderData);
+    } catch (err) {
+      console.error('Failed to fetch order details:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load order details';
+      setError(errorMessage);
+      toast.error('Failed to load order', {
+        description: errorMessage,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchOrderDetails();
   }, [location.state, searchParams, authState.isAuthenticated, authState.token]);
 
@@ -99,7 +106,12 @@ const OrderConfirmation = () => {
               <p className="text-gray-600 mb-6 text-center">
                 {error || 'We couldn\'t find the order you\'re looking for.'}
               </p>
-              <div className="space-x-4">
+              <div className="flex flex-wrap gap-4 justify-center">
+                {(searchParams.get('orderId') || location.state?.orderId) && authState.isAuthenticated && (
+                  <Button onClick={fetchOrderDetails} variant="outline">
+                    Retry
+                  </Button>
+                )}
                 <Link to="/">
                   <Button variant="outline">Go Home</Button>
                 </Link>
@@ -123,31 +135,33 @@ const OrderConfirmation = () => {
   // Parse shipping address - handle both JSON string and direct object
   let shippingAddress: ShippingAddress;
   try {
-    if (typeof order.shipping_address === 'string') {
+    if (typeof order.shipping_address === 'string' && order.shipping_address.startsWith('{')) {
+      // Try to parse as JSON
       shippingAddress = JSON.parse(order.shipping_address);
-    } else if (order.shipping_address) {
-      shippingAddress = order.shipping_address;
+    } else if (typeof order.shipping_address === 'object' && order.shipping_address !== null) {
+      // Already an object
+      shippingAddress = order.shipping_address as ShippingAddress;
     } else {
       // Fallback to individual shipping fields from order
       shippingAddress = {
-        full_name: order.shipping_name || 'N/A',
-        address: order.shipping_address || 'N/A',
-        city: order.shipping_city || 'N/A',
-        state: order.shipping_state || 'N/A',
-        zip_code: order.shipping_zip || 'N/A',
-        country: order.shipping_country || 'N/A'
+        full_name: order.shipping_name || 'Not provided',
+        address: (typeof order.shipping_address === 'string' ? order.shipping_address : '') || 'Not provided',
+        city: order.shipping_city || 'Not provided',
+        state: order.shipping_state || 'Not provided',
+        zip_code: order.shipping_zip || 'Not provided',
+        country: order.shipping_country || 'Not provided'
       };
     }
   } catch (error) {
     console.error('Failed to parse shipping address:', error);
     // Use individual fields as fallback
     shippingAddress = {
-      full_name: order.shipping_name || 'N/A',
-      address: order.shipping_address || 'N/A',
-      city: order.shipping_city || 'N/A',
-      state: order.shipping_state || 'N/A',
-      zip_code: order.shipping_zip || 'N/A',
-      country: order.shipping_country || 'N/A'
+      full_name: order.shipping_name || 'Not provided',
+      address: (typeof order.shipping_address === 'string' ? order.shipping_address : '') || 'Not provided',
+      city: order.shipping_city || 'Not provided',
+      state: order.shipping_state || 'Not provided',
+      zip_code: order.shipping_zip || 'Not provided',
+      country: order.shipping_country || 'Not provided'
     };
   }
 
@@ -215,7 +229,7 @@ const OrderConfirmation = () => {
                   minute: '2-digit'
                 })}</p>
                 <p><span className="font-medium">Items:</span> {order.items?.length || 0} item(s)</p>
-                <p><span className="font-medium">Payment Method:</span> {order.payment_method ? order.payment_method.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : 'N/A'}</p>
+                <p><span className="font-medium">Payment Method:</span> {order.payment_method ? order.payment_method.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : 'Not specified'}</p>
               </div>
             </div>
 
@@ -237,52 +251,59 @@ const OrderConfirmation = () => {
           </div>
 
           {/* Order Items */}
-          {order.items && order.items.length > 0 && (
-            <div className="bg-gray-50 rounded-lg p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-4">Order Items</h2>
-              <div className="space-y-4">
-                {order.items.map((item) => (
-                  <div key={item.id} className="flex gap-4 pb-4 border-b last:border-b-0">
-                    <img
-                      src={item.product_image || '/img/book-categori/book-placeholder.png'}
-                      alt={item.product_name || 'Book'}
-                      className="w-16 h-20 object-cover rounded"
-                      onError={(e) => {
-                        e.currentTarget.src = '/img/book-categori/book-placeholder.png';
-                      }}
-                    />
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{item.product_name || 'Book'}</h3>
-                      <p className="text-sm text-gray-600 mt-1">Quantity: {item.quantity}</p>
-                      <p className="text-sm font-semibold text-gray-900 mt-1">
-                        ₹{Number(item.price).toFixed(2)} × {item.quantity} = ₹{(Number(item.price) * item.quantity).toFixed(2)}
-                      </p>
+          <div className="bg-gray-50 rounded-lg p-6 mb-8">
+            <h2 className="text-xl font-semibold mb-4">Order Items</h2>
+            {order.items && Array.isArray(order.items) && order.items.length > 0 ? (
+              <>
+                <div className="space-y-4">
+                  {order.items.map((item) => (
+                    <div key={item.id} className="flex gap-4 pb-4 border-b last:border-b-0">
+                      <img
+                        src={item.product_image || '/img/book-categori/01.png'}
+                        alt={item.product_name || 'Product'}
+                        className="w-16 h-20 object-cover rounded"
+                        onError={(e) => {
+                          e.currentTarget.src = '/img/book-categori/01.png';
+                        }}
+                      />
+                      <div className="flex-1">
+                        <h3 className="font-medium text-gray-900">{item.product_name || 'Unknown Product'}</h3>
+                        <p className="text-sm text-gray-600 mt-1">Quantity: {item.quantity || 1}</p>
+                        <p className="text-sm font-semibold text-gray-900 mt-1">
+                          ₹{Number(item.price || 0).toFixed(2)} × {item.quantity || 1} = ₹{(Number(item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </p>
+                      </div>
                     </div>
+                  ))}
+                </div>
+                
+                {/* Order Totals */}
+                <div className="border-t pt-4 mt-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Subtotal</span>
+                    <span>₹{Number(order.subtotal || 0).toFixed(2)}</span>
                   </div>
-                ))}
+                  <div className="flex justify-between text-sm">
+                    <span>Tax</span>
+                    <span>₹{Number(order.tax || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Shipping</span>
+                    <span>{order.shipping_cost === 0 ? 'Free' : `₹${Number(order.shipping_cost || 0).toFixed(2)}`}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
+                    <span>Total</span>
+                    <span>₹{Number(order.total || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No items found in this order</p>
               </div>
-              
-              {/* Order Totals */}
-              <div className="border-t pt-4 mt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
-                  <span>₹{order.subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Tax</span>
-                  <span>₹{order.tax.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Shipping</span>
-                  <span>{order.shipping_cost === 0 ? 'Free' : `₹${order.shipping_cost.toFixed(2)}`}</span>
-                </div>
-                <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
-                  <span>Total</span>
-                  <span>₹{order.total.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Delivery Timeline */}
           <div className="bg-blue-50 rounded-lg p-6 mb-8">

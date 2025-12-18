@@ -49,6 +49,12 @@ const OrderHistory = () => {
 
         // Fetch orders from API
         const ordersData = await OrderService.getOrders(authState.token, currentPage);
+        
+        // Validate response structure
+        if (!ordersData || !Array.isArray(ordersData.data)) {
+          throw new Error('Invalid orders data received from server');
+        }
+        
         setOrders(ordersData);
       } catch (err) {
         console.error('Failed to fetch orders:', err);
@@ -75,6 +81,12 @@ const OrderHistory = () => {
       }
 
       const orderDetails = await OrderService.getOrderById(authState.token, orderId);
+      
+      // Validate that we have order details
+      if (!orderDetails || !orderDetails.id) {
+        throw new Error('Invalid order data received');
+      }
+      
       setSelectedOrder(orderDetails);
       setIsDialogOpen(true);
     } catch (err) {
@@ -162,7 +174,17 @@ const OrderHistory = () => {
               <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
               <h2 className="text-2xl font-bold mb-2">Unable to Load Orders</h2>
               <p className="text-gray-600 mb-6 text-center">{error}</p>
-              <div className="space-x-4">
+              <div className="flex gap-4">
+                {authState.isAuthenticated && (
+                  <Button 
+                    onClick={() => {
+                      setError(null);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    Try Again
+                  </Button>
+                )}
                 <Link to="/">
                   <Button variant="outline">Go Home</Button>
                 </Link>
@@ -247,7 +269,7 @@ const OrderHistory = () => {
                       <p>
                         <span className="font-medium">Total:</span>{' '}
                         <span className="text-lg font-bold text-gray-900">
-                          ₹{order.total.toFixed(2)}
+                          ₹{Number(order.total || 0).toFixed(2)}
                         </span>
                       </p>
                     </div>
@@ -329,13 +351,18 @@ const OrderHistory = () => {
       </div>
 
       {/* Order Details Dialog */}
-      <OrderDetailsDialog
-        order={selectedOrder}
-        isOpen={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        onPrint={handlePrintOrder}
-        getStatusColor={getStatusColor}
-      />
+      {selectedOrder && (
+        <OrderDetailsDialog
+          order={selectedOrder}
+          isOpen={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+            setSelectedOrder(null);
+          }}
+          onPrint={handlePrintOrder}
+          getStatusColor={getStatusColor}
+        />
+      )}
     </div>
   );
 };
@@ -429,31 +456,39 @@ const OrderDetailsDialog = ({
             <h3 className="font-semibold mb-3">Order Items</h3>
             <div className="space-y-3">
               {order.items && order.items.length > 0 ? (
-                order.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex gap-4 p-3 bg-gray-50 rounded-lg"
-                  >
-                    <img
-                      src={item.product_image}
-                      alt={item.product_name}
-                      className="w-16 h-20 object-cover rounded"
-                      onError={(e) => {
-                        e.currentTarget.src = '/img/book-categori/book-placeholder.png';
-                      }}
-                    />
-                    <div className="flex-1">
-                      <h4 className="font-medium text-gray-900">{item.product_name}</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Quantity: {item.quantity}
-                      </p>
-                      <p className="text-sm font-semibold text-gray-900 mt-1">
-                        ₹{item.price.toFixed(2)} × {item.quantity} = ₹
-                        {(item.price * item.quantity).toFixed(2)}
-                      </p>
+                order.items.map((item) => {
+                  // Ensure we have valid data for each item
+                  const itemPrice = Number(item.price) || 0;
+                  const itemQuantity = Number(item.quantity) || 1;
+                  const itemTotal = itemPrice * itemQuantity;
+                  
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex gap-4 p-3 bg-gray-50 rounded-lg"
+                    >
+                      <img
+                        src={item.product_image || '/img/book-categori/01.png'}
+                        alt={item.product_name || 'Product'}
+                        className="w-16 h-20 object-cover rounded"
+                        onError={(e) => {
+                          e.currentTarget.src = '/img/book-categori/01.png';
+                        }}
+                      />
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-900">
+                          {item.product_name || 'Unknown Product'}
+                        </h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Quantity: {itemQuantity}
+                        </p>
+                        <p className="text-sm font-semibold text-gray-900 mt-1">
+                          ₹{itemPrice.toFixed(2)} × {itemQuantity} = ₹{itemTotal.toFixed(2)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="text-gray-600 text-center py-4">No items in this order</p>
               )}
@@ -465,27 +500,32 @@ const OrderDetailsDialog = ({
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal</span>
-                <span>₹{order.subtotal.toFixed(2)}</span>
+                <span>₹{(Number(order.subtotal) || 0).toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Tax</span>
-                <span>₹{order.tax.toFixed(2)}</span>
+                <span>₹{(Number(order.tax) || 0).toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Shipping</span>
                 <span>
-                  {order.shipping_cost === 0 ? 'Free' : `₹${order.shipping_cost.toFixed(2)}`}
+                  {Number(order.shipping_cost) === 0 ? 'Free' : `₹${(Number(order.shipping_cost) || 0).toFixed(2)}`}
                 </span>
               </div>
               <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
                 <span>Total</span>
-                <span>₹{order.total.toFixed(2)}</span>
+                <span>₹{(Number(order.total) || 0).toFixed(2)}</span>
               </div>
             </div>
           </div>
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4 border-t">
+            <Link to={`/order-confirmation?orderId=${order.id}`}>
+              <Button variant="outline">
+                View Full Details
+              </Button>
+            </Link>
             <Button variant="outline" onClick={onPrint}>
               Print Order
             </Button>

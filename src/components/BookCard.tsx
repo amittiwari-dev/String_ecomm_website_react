@@ -11,82 +11,163 @@ import { Book } from '@/data/mockData';
 
 // Helper to map API-shaped book to internal Book shape used across the app
 const mapApiBookToBook = (api: any): Book => {
-  const price = Number(api.price) || 0;
+  // Handle both string and number prices
+  const price = typeof api.price === 'string' ? parseFloat(api.price) : Number(api.price) || 0;
+  
+  // Handle ID - could be number or string
   const idStr = api.id != null ? String(api.id) : (api.product_slug || '0');
-  const slug = api.product_slug || idStr;
-  // Use the correct base URL for images
+  
+  // Handle slug
+  const slug = api.product_slug || api.slug || idStr;
+  
+  // Use the correct base URL for images with proper fallback
   const base = 'https://sterlingpublishers.in/publishing';
-  const cover = api.product_image
-    ? `${base}/images/products/${api.product_image}`
-    : '/img/book-categori/book-placeholder.png';
+  let cover = '/img/book-categori/book-placeholder.png';
+  
+  if (api.product_image) {
+    cover = `${base}/images/products/${api.product_image}`;
+  } else if (api.images && Array.isArray(api.images) && api.images.length > 0) {
+    // Handle case where book already has images array
+    cover = api.images[0];
+  }
+
+  // Handle author data - could be in different formats
+  let authors = [];
+  if (api.authors && Array.isArray(api.authors) && api.authors.length > 0) {
+    // Already has authors array
+    authors = api.authors;
+  } else if (api.author_name || api.author_id) {
+    // Has author_name and/or author_id
+    authors = [{
+      id: api.author_id ? String(api.author_id) : `a-${idStr}`,
+      name: api.author_name || 'Unknown',
+      slug: (api.author_name || 'unknown').toLowerCase().replace(/\s+/g, '-'),
+      bio: ''
+    }];
+  } else {
+    // No author data
+    authors = [{
+      id: `a-${idStr}`,
+      name: 'Unknown',
+      slug: 'unknown',
+      bio: ''
+    }];
+  }
+
+  // Handle category_id - could be nested or direct
+  let categoryId = '0';
+  if (api.category_id) {
+    categoryId = String(api.category_id);
+  } else if (api.category && api.category.id) {
+    categoryId = String(api.category.id);
+  }
+
+  // Handle stock status
+  let stockStatus: 'In Stock' | 'Out of Stock' | 'Preorder' = 'In Stock';
+  if (api.stock_status) {
+    stockStatus = api.stock_status;
+  } else if (api.is_active !== undefined) {
+    stockStatus = api.is_active === 1 || api.is_active === true ? 'In Stock' : 'Out of Stock';
+  }
 
   return {
     id: idStr,
     title: api.product_name || api.title || 'Untitled',
     subtitle: api.subtitle || undefined,
     slug,
-    description: api.product_description || '',
+    description: api.product_description || api.description || '',
     language: api.language || 'English',
-    format: (api.paperback_type as any) || 'Paperback',
+    format: (api.paperback_type || api.format || 'Paperback') as any,
     price,
     currency: api.currency || 'INR',
     publication_date: api.publication_date || new Date().toISOString(),
-    pages: api.total_pages || undefined,
-    stock_status: api.is_active === 1 ? 'In Stock' : 'Out of Stock',
+    pages: api.total_pages || api.pages || undefined,
+    stock_status: stockStatus,
     images: [cover],
-    authors: [
-      {
-        id: api.author_id ? String(api.author_id) : `a-${idStr}`,
-        name: api.author_name || 'Unknown',
-        slug: (api.author_name || 'unknown').toLowerCase().replace(/\s+/g, '-'),
-        bio: ''
-      }
-    ],
-    category_id: api.category?.id || '0',
+    authors,
+    category_id: categoryId,
     tags: api.tags || [],
     is_latest_release: !!api.is_latest_release,
+    isbn10: api.product_isbn || api.isbn10 || undefined,
+    isbn13: api.isbn13 || undefined,
+    rating: api.rating || undefined,
   } as Book;
 };
 
+// API Book interface - flexible to handle various API response formats
 interface ApiBook {
-  id: number;
-  product_name: string;
+  id?: number | string;
+  product_name?: string;
+  title?: string;
   product_description?: string;
+  description?: string;
   author_name?: string;
+  author_id?: number | string;
+  authors?: any[];
   product_slug?: string;
+  slug?: string;
   total_pages?: number;
-  price: string;
+  pages?: number;
+  price: string | number;
   paperback_type?: string;
+  format?: string;
   product_isbn?: string;
+  isbn10?: string;
+  isbn13?: string;
   edition?: string;
   product_image?: string;
-  is_active: number;
-  category?: { category_name: string };
-  subcategory?: { sub_category_name: string };
+  images?: string[];
+  is_active?: number | boolean;
+  stock_status?: 'In Stock' | 'Out of Stock' | 'Preorder';
+  category?: { id?: string | number; category_name?: string };
+  category_id?: string | number;
+  subcategory?: { sub_category_name?: string };
+  language?: string;
+  currency?: string;
+  publication_date?: string;
+  tags?: string[];
+  is_latest_release?: boolean;
+  rating?: number;
+  subtitle?: string;
 }
 
 interface BookCardProps {
-  book: ApiBook;
+  book: ApiBook | Book;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/';
 
 const BookCard = ({ book }: BookCardProps) => {
   const [isWishlisted, setIsWishlisted] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const { toast } = useToast();
   const { addToCart } = useCart();
+
+  // Normalize the book data to internal format
+  const mapped = mapApiBookToBook(book);
 
   const handleWishlist = () => {
     setIsWishlisted(!isWishlisted);
     toast({
       title: isWishlisted ? 'Removed from wishlist' : 'Added to wishlist',
-      description: `${book.product_name} ${isWishlisted ? 'removed from' : 'added to'} your wishlist.`,
+      description: `${mapped.title} ${isWishlisted ? 'removed from' : 'added to'} your wishlist.`,
     });
   };
 
- 
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (!imageError) {
+      setImageError(true);
+      e.currentTarget.src = '/img/book-categori/book-placeholder.png';
+    }
+  };
 
-  const mapped = mapApiBookToBook(book);
+  const handleAddToCart = () => {
+    try {
+      addToCart(mapped);
+      sonnerToast.success(`${mapped.title} added to cart`);
+    } catch (error) {
+      console.error('Failed to add to cart:', error);
+      sonnerToast.error('Failed to add to cart. Please try again.');
+    }
+  };
 
   return (
     <Card className="group hover:shadow-lg transition-shadow duration-300">
@@ -94,7 +175,7 @@ const BookCard = ({ book }: BookCardProps) => {
         {/* Book Cover */}
         <div className="relative overflow-hidden">
           {/* Bestseller Badge (optional example) */}
-          {book.is_active === 1 && (
+          {mapped.stock_status === 'In Stock' && (
             <div className="absolute top-2 left-2 z-10">
               <Badge className="bg-accent text-accent-foreground font-bold">BESTSELLER</Badge>
             </div>
@@ -105,9 +186,8 @@ const BookCard = ({ book }: BookCardProps) => {
               src={mapped.images[0] || '/img/book-categori/book-placeholder.png'}
               alt={mapped.title}
               className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
-              onError={(e) => {
-                e.currentTarget.src = '/img/book-categori/book-placeholder.png';
-              }}
+              onError={handleImageError}
+              loading="lazy"
             />
           </Link>
 
@@ -138,9 +218,9 @@ const BookCard = ({ book }: BookCardProps) => {
             >
               {mapped.title}
             </Link>
-            {book.product_description && (
+            {mapped.description && (
               <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
-                {book.product_description}
+                {mapped.description}
               </p>
             )}
           </div>
@@ -163,57 +243,54 @@ const BookCard = ({ book }: BookCardProps) => {
 
           {/* Format / Category / Pages */}
           <div className="flex flex-wrap gap-1 text-xs text-muted-foreground mb-2">
-            {book.paperback_type && (
+            {mapped.format && (
               <Badge variant="outline" className="text-xs">
-                {book.paperback_type}
+                {mapped.format}
               </Badge>
             )}
-            {book.category?.category_name && (
+            {(book as any).category?.category_name && (
               <Badge variant="outline" className="text-xs">
-                {book.category.category_name}
+                {(book as any).category.category_name}
               </Badge>
             )}
-            {book.total_pages && (
+            {mapped.pages && (
               <Badge variant="outline" className="text-xs">
-                {book.total_pages} pages
+                {mapped.pages} pages
               </Badge>
             )}
           </div>
 
           {/* ISBN & Edition */}
           <div className="space-y-1 text-xs text-muted-foreground mb-3">
-            {book.product_isbn && <p>ISBN: {book.product_isbn}</p>}
-            {book.edition && <p>Published: {book.edition}</p>}
+            {mapped.isbn10 && <p>ISBN: {mapped.isbn10}</p>}
+            {(book as any).edition && <p>Published: {(book as any).edition}</p>}
           </div>
 
           {/* Subcategory Info */}
-          {book.subcategory?.sub_category_name && (
+          {(book as any).subcategory?.sub_category_name && (
             <p className="text-xs text-primary font-medium mb-2">
-              Part of: {book.subcategory.sub_category_name}
+              Part of: {(book as any).subcategory.sub_category_name}
             </p>
           )}
 
           {/* Price and Actions */}
           <div className="flex items-end justify-between pt-2">
             <div className="space-y-1">
-              <div className="text-lg font-bold text-primary">₹{mapped.price}</div>
-              <div className="text-xs text-muted-foreground">In Stock</div>
+              <div className="text-lg font-bold text-primary">₹{mapped.price.toFixed(2)}</div>
+              <div className="text-xs text-muted-foreground">{mapped.stock_status}</div>
             </div>
 
-             <div className="pt-2 flex justify-between items-center">
-               
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    addToCart(mapped);
-                    sonnerToast.success(`${mapped.title} added to cart`);
-                  }}
-                  className="shrink-0"
-                >
-                  <ShoppingCart className="h-3 w-3 mr-1" />
-                  Add to Cart
-                </Button>
-              </div>
+            <div className="pt-2 flex justify-between items-center">
+              <Button
+                size="sm"
+                onClick={handleAddToCart}
+                className="shrink-0"
+                disabled={mapped.stock_status === 'Out of Stock'}
+              >
+                <ShoppingCart className="h-3 w-3 mr-1" />
+                Add to Cart
+              </Button>
+            </div>
           </div>
         </div>
       </CardContent>

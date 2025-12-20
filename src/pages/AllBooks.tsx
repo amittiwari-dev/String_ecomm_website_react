@@ -204,7 +204,7 @@ const AllBooks = () => {
       // Build filters object for API
       const apiFilters: any = {
         page: resetPage ? 1 : currentPage,
-        per_page: 20
+        per_page: 1000
       };
       
       // Add search term if present
@@ -435,7 +435,7 @@ const AllBooks = () => {
       </div>
 
       {/* Search and Filters */}
-      <div className="mb-8 space-y-4">
+      <div className="mb-8 space-y-4" hidden>
         {/* Search Bar */}
         <div className="relative max-w-md mx-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -627,7 +627,7 @@ const AllBooks = () => {
       </div>
 
       {/* Progressive Loading Toggle */}
-      <div className="text-center mb-4">
+      <div className="text-center mb-4" hidden>
         <Button
           variant="outline"
           onClick={() => setUseProgressiveLoading(!useProgressiveLoading)}

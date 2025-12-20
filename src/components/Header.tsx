@@ -51,7 +51,7 @@ const Header = () => {
   
   // Static navigation items - restored old menu structure
   const staticNavigation: NavigationItem[] = [
-    { name: 'Latest Releases', href: '/latest-releases' },
+    { name: 'All Books', href: '/books' },
     { 
       name: 'Our Books', 
       href: '/books', 

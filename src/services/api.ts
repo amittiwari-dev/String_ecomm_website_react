@@ -49,7 +49,7 @@ const normalizeApiBookToBook = (apiBook: any): Book => {
       
       if (isLocal) {
         // Local development - Laravel storage path
-        cover = `http://127.0.0.1:8000/storage/products/${apiBook.product_image}`;
+        cover = `http://127.0.0.1:8000/images/products/${apiBook.product_image}`;
       } else {
         // Production
         cover = `https://sterlingpublishers.in/publishing/images/products/${apiBook.product_image}`;

@@ -54,7 +54,7 @@ async function testFooterAndImages() {
         booksWithImages.slice(0, 3).forEach((book, index) => {
           const imageUrl = book.product_image.startsWith('http') 
             ? book.product_image 
-            : `http://127.0.0.1:8000/storage/products/${book.product_image}`;
+            : `http://127.0.0.1:8000//${book.product_image}`;
           
           console.log(`   ${index + 1}. ${book.product_name}`);
           console.log(`      Image: ${imageUrl}`);

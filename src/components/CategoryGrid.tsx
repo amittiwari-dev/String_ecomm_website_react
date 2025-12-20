@@ -228,7 +228,7 @@ const CategoryGrid = () => {
                 const IconComponent = getCategoryIcon(categoryData.category.name);
                 
                 return (
-                  <div key={categoryData.category.id} className="animate-in fade-in-0 slide-in-from-bottom-4 duration-700" style={{ animationDelay: `${categoryIndex * 200}ms` }}>
+                  <div key={categoryData.category.id} className="animate-in fade-in-0 slide-in-from-bottom-4 duration-700 mt-4" style={{ animationDelay: `${categoryIndex * 200}ms` }}>
                     {/* Category Header */}
                     <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-primary/20">
                       <div className="flex items-center space-x-4">

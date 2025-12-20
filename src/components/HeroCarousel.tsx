@@ -157,18 +157,18 @@ const HeroCarousel = () => {
                     </div>
                     
                     <div className="flex items-center space-x-6">
-                      <div className="text-3xl font-bold text-primary">
+                      {/* <div className="text-3xl font-bold text-primary">
                         ₹{book.price}
-                      </div>
+                      </div> */}
                       <div className="flex space-x-3">
-                        <Button asChild>
+                        {/* <Button asChild>
                           <Link to={`/book/${book.id}-${book.slug}`}>
                             View Details
                           </Link>
-                        </Button>
-                        <Button variant="outline">
+                        </Button> */}
+                        {/* <Button variant="outline">
                           Add to Cart
-                        </Button>
+                        </Button> */}
                       </div>
                     </div>
                   </div>

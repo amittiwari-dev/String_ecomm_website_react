@@ -236,7 +236,7 @@ const PromotionalBannerSection = ({ section }: { section: HomepageSection }) => 
   
   return (
     <section className="py-16">
-      <div className="container mx-auto px-4">
+      {/* <div className="container mx-auto px-4">
         <div 
           className="relative rounded-lg overflow-hidden bg-gradient-to-r from-primary to-primary/80 text-white p-8 md:p-12"
           style={content.banner_image ? { 
@@ -269,7 +269,7 @@ const PromotionalBannerSection = ({ section }: { section: HomepageSection }) => 
             )}
           </div>
         </div>
-      </div>
+      </div> */}
     </section>
   );
 };
@@ -295,7 +295,7 @@ const normalizeApiBook = (apiBook: any): Book => {
       cover = apiBook.product_image;
     } else {
       // Otherwise, construct the URL
-      // For local: http://127.0.0.1:8000/storage/products/image.jpg
+      // For local: http://127.0.0.1:8000/images/products/image.jpg
       // For production: https://sterlingpublishers.in/publishing/images/products/image.jpg
       const isLocal = API_BASE_URL?.includes('localhost') || API_BASE_URL?.includes('127.0.0.1');
       
@@ -448,13 +448,14 @@ const Index = () => {
           if (!SectionComponent) {
             console.warn(`No component found for section type: ${section.section_type}`);
             return (
-              <section key={section.id} className="py-16">
-                <div className="container mx-auto px-4">
-                  <div className="text-center text-gray-500">
-                    <p>Unsupported section type: {section.section_type}</p>
-                  </div>
-                </div>
-              </section>
+              // <section key={section.id} className="py-16">
+              //   <div className="container mx-auto px-4">
+              //     <div className="text-center text-gray-500">
+              //       <p>Unsupported section type: {section.section_type}</p>
+              //     </div>
+              //   </div>
+              // </section>
+              <> </>
             );
           }
 

@@ -7,10 +7,39 @@ import { useToast } from '@/hooks/use-toast';
 import { Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { toast as sonnerToast } from "sonner";
-import { Book } from '@/data/mockData';
+// Book interface for type safety
+interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  language: string;
+  format: 'Hardcover' | 'Paperback' | 'eBook';
+  price: number;
+  currency: string;
+  isbn10?: string;
+  isbn13?: string;
+  publication_date: string;
+  pages?: number;
+  stock_status: 'In Stock' | 'Out of Stock' | 'Preorder';
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    bio: string;
+  }>;
+  category_id: string;
+  tags: string[];
+  is_latest_release: boolean;
+  rating?: number;
+}
 import { useProgressiveLoading } from '@/hooks/useInfiniteScroll';
 import { ProgressiveLoading, LoadingMoreSkeleton } from '@/components/ui/progressive-loading';
+import { getApiErrorMessage, validateApiConfig, logError } from '@/utils/environment';
 import { BookGridSkeleton } from '@/components/ui/book-skeleton';
+import { SmoothLoadingTransition } from '@/components/ui/filter-loading';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -18,9 +47,27 @@ const mapApiBookToBook = (api: any): Book => {
   const price = Number(api.price) || 0;
   const idStr = api.id != null ? String(api.id) : (api.product_slug || '0');
   const slug = api.product_slug || idStr;
-  const cover = api.product_image
-    ? `http://localhost:8000/images/products/${api.product_image}`
-    : '/img/book-categori/01.png';
+  
+  // Handle image URL - check if it's a full URL or just filename
+  let cover = '/img/book-categori/book-placeholder.png';
+  
+  if (api.product_image) {
+    // If product_image is already a full URL, use it as is
+    if (api.product_image.startsWith('http://') || api.product_image.startsWith('https://')) {
+      cover = api.product_image;
+    } else {
+      // Otherwise, construct the URL based on environment
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      if (isLocal) {
+        // Local development - Laravel storage path
+        cover = `http://127.0.0.1:8000/storage/products/${api.product_image}`;
+      } else {
+        // Production
+        cover = `https://sterlingpublishers.in/publishing/images/products/${api.product_image}`;
+      }
+    }
+  }
 
   return {
     id: idStr,
@@ -74,21 +121,6 @@ export const ProgressiveBookGrid = ({
   // Load more books function
   const loadMoreBooks = useCallback(async (page: number) => {
     try {
-      // In development mode, use mock data
-      if (import.meta.env.DEV) {
-        const { books: mockBooks } = await import('@/data/mockData');
-        const pageSize = 12;
-        const startIndex = (page - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const pageData = mockBooks.slice(startIndex, endIndex);
-        
-        return {
-          data: pageData,
-          hasMore: endIndex < mockBooks.length,
-          nextPage: page + 1
-        };
-      }
-
       const response = await fetch(`${API_BASE_URL}new-books?page=${page}`);
       if (!response.ok) throw new Error('Failed to fetch books');
 
@@ -110,23 +142,8 @@ export const ProgressiveBookGrid = ({
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      console.error(error);
-      // Fallback to mock data on error
-      try {
-        const { books: mockBooks } = await import('@/data/mockData');
-        const pageSize = 12;
-        const startIndex = (page - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const pageData = mockBooks.slice(startIndex, endIndex);
-        
-        return {
-          data: pageData,
-          hasMore: endIndex < mockBooks.length,
-          nextPage: page + 1
-        };
-      } catch (fallbackError) {
-        throw new Error('Failed to load books');
-      }
+      logError('Failed to load books', error);
+      throw new Error('Failed to load books from API. Please check your connection and try again.');
     }
   }, []);
 
@@ -155,18 +172,8 @@ export const ProgressiveBookGrid = ({
   const filteredAndSortedBooks = useMemo(() => {
     let filtered = allBooks;
 
-    // Filter for latest releases if on that page
-    if (isLatestReleasesPage) {
-      // For latest releases, show books with is_latest_release flag or recent books
-      filtered = filtered.filter(book => {
-        // Check if book has is_latest_release flag
-        if (book.is_latest_release === true) return true;
-        
-        // Or check if it's a recent book (higher ID numbers indicate newer books)
-        const bookId = parseInt(book.id) || 0;
-        return bookId >= 15; // Show books with ID 15 and above as latest releases
-      });
-    }
+    // No need for client-side latest releases filtering - backend handles it
+    // The loadMoreBooks function should handle latest releases filtering
 
     // Filter by search term
     if (searchTerm.trim()) {
@@ -246,23 +253,32 @@ export const ProgressiveBookGrid = ({
   }, [allBooks, searchTerm, sortBy, categoryFilter, minPrice, maxPrice, isLatestReleasesPage]);
 
   if (isLoading) {
-    return <BookGridSkeleton count={12} />;
+    return (
+      <div className="animate-in fade-in-0 duration-300">
+        <BookGridSkeleton count={12} />
+      </div>
+    );
   }
 
   return (
     <div ref={targetRef} className="space-y-8">
       {/* Books Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-        {filteredAndSortedBooks.length > 0 ? (
-          filteredAndSortedBooks.map((book) => {
-            // Handle both API format and mock data format
-            const bookData = book.title ? book : mapApiBookToBook(book);
-            
-            return (
-              <div
-                key={bookData.id}
-                className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3"
-              >
+      <SmoothLoadingTransition
+        isLoading={isLoadingMore}
+        loadingSkeleton={<LoadingMoreSkeleton type="cards" count={4} />}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          {filteredAndSortedBooks.length > 0 ? (
+            filteredAndSortedBooks.map((book, index) => {
+              // Handle both API format and mock data format
+              const bookData = book.title ? book : mapApiBookToBook(book);
+              
+              return (
+                <div
+                  key={bookData.id}
+                  className="bg-white p-4 rounded-xl shadow hover:shadow-md transition space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-500"
+                  style={{ animationDelay: `${index * 50}ms` }}
+                >
                 <Link to={`/book/${bookData.slug}`} state={{ book: bookData }}>
                   <img
                     src={bookData.images?.[0] || "/img/book-categori/01.png"}
@@ -320,17 +336,18 @@ export const ProgressiveBookGrid = ({
                     Add to Cart
                   </Button>
                 </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="col-span-full text-center py-12">
-            <p className="text-lg text-muted-foreground mb-2">
-              {allBooks.length === 0 ? 'No books available.' : 'No books match your current filters.'}
-            </p>
-          </div>
-        )}
-      </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="col-span-full text-center py-12 animate-in fade-in-0 duration-500">
+              <p className="text-lg text-muted-foreground mb-2">
+                {allBooks.length === 0 ? 'No books available.' : 'No books match your current filters.'}
+              </p>
+            </div>
+          )}
+        </div>
+      </SmoothLoadingTransition>
 
       {/* Progressive Loading Component */}
       <ProgressiveLoading

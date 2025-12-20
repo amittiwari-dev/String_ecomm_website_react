@@ -91,16 +91,12 @@ const Header = () => {
                           {item.name}
                           {item.categories && item.categories.length > 0 && (
                             <Badge variant="secondary" className="ml-2 text-xs transition-all duration-200 hover:scale-105">
-                              {item.categories.reduce((total, cat) => total + cat.bookCount, 0)}
+                              {item.categories.reduce((total, cat) => total + cat.book_count, 0)}
                             </Badge>
                           )}
                         </NavigationMenuTrigger>
                         <NavigationMenuContent>
-                          <MegaMenu 
-                            categories={item.categories} 
-                            isLoading={isMenuLoading}
-                            error={menuError}
-                          />
+                          <MegaMenu />
                         </NavigationMenuContent>
                       </>
                     ) : (
@@ -234,7 +230,7 @@ const Header = () => {
                           <span>{item.name}</span>
                           {item.categories && item.categories.length > 0 && (
                             <Badge variant="secondary" className="text-xs transition-all duration-200">
-                              {item.categories.reduce((total, cat) => total + cat.bookCount, 0)}
+                              {item.categories.reduce((total, cat) => total + cat.book_count, 0)}
                             </Badge>
                           )}
                         </Link>
@@ -249,7 +245,7 @@ const Header = () => {
                               >
                                 <span>{category.name}</span>
                                 <Badge variant="outline" className="text-xs transition-all duration-200">
-                                  {category.bookCount}
+                                  {category.book_count}
                                 </Badge>
                               </Link>
                             ))}

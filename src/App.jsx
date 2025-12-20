@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster as Sonner } from "sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,6 +8,10 @@ import { CartProvider, useCart } from "./context/CartContext";
 import { AuthProvider } from "./context/AuthContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import RouteWrapper from "./components/RouteWrapper";
+import { createQueryClient } from "./lib/queryConfig";
+import { prefetchCriticalData } from "./lib/prefetch";
+import { logCacheStats } from "./lib/cacheDebug";
+import { useEffect } from "react";
 
 import Authors from "./pages/Authors";
 import PublishWithUs from "./pages/PublishWithUs";
@@ -27,32 +32,8 @@ import MyProfile from "./pages/MyProfile";
 import OrderHistory from "./pages/OrderHistory";
 import TestPage from "./pages/TestPage";
 
-// ✅ Create queryClient with error handling
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: (failureCount, error) => {
-        // Don't retry on 4xx errors (client errors)
-        if (error?.status >= 400 && error?.status < 500) {
-          return false;
-        }
-        // Retry up to 3 times for other errors
-        return failureCount < 3;
-      },
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    },
-    mutations: {
-      retry: (failureCount, error) => {
-        // Don't retry mutations on client errors
-        if (error?.status >= 400 && error?.status < 500) {
-          return false;
-        }
-        // Only retry once for mutations
-        return failureCount < 1;
-      },
-    },
-  },
-});
+// ✅ Create queryClient with optimized caching strategy
+const queryClient = createQueryClient();
 
 // Global error handler for the application
 const handleGlobalError = (error, errorInfo) => {
@@ -78,6 +59,24 @@ const handleGlobalError = (error, errorInfo) => {
 
 function App() {
   console.log('App component rendering...');
+
+  // Prefetch critical data on app load
+  useEffect(() => {
+    const initializeCriticalData = async () => {
+      try {
+        await prefetchCriticalData(queryClient);
+        
+        // Log cache stats in development
+        if (import.meta.env.DEV) {
+          setTimeout(() => logCacheStats(queryClient), 1000);
+        }
+      } catch (error) {
+        console.warn('Failed to prefetch critical data:', error);
+      }
+    };
+
+    initializeCriticalData();
+  }, []);
 
   return (
     <ErrorBoundary onError={handleGlobalError}>
@@ -206,6 +205,8 @@ function App() {
             </AuthProvider>
           </CartProvider>
         </TooltipProvider>
+        {/* React Query Devtools - only in development */}
+        {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
       </QueryClientProvider>
     </ErrorBoundary>
   );

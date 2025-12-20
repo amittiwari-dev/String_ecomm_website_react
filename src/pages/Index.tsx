@@ -1,16 +1,278 @@
 import HeroCarousel from '@/components/HeroCarousel';
 import CategoryGrid from '@/components/CategoryGrid';
 import BookCard from '@/components/BookCard';
-import { Book } from '@/data/mockData';
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-
+import { deduplicateBooks, filterInvalidBooks } from '@/utils/deduplication';
+import { ContentService, HomepageSection, SectionType } from '@/services/contentService';
+import { useQuery } from '@tanstack/react-query';
+import { Skeleton } from '@/components/ui/skeleton';
+import { BookGridSkeleton } from '@/components/ui/book-skeleton';
+import { 
+  HomepageLoadingSkeleton, 
+  ProgressiveSectionSkeleton,
+  HeroCarouselSkeleton,
+  FeaturedBooksSkeleton,
+  CategoryGridSkeleton,
+  PromotionalBannerSkeleton
+} from '@/components/ui/homepage-skeleton';
 import { useState, useEffect } from 'react';
-import { BookIcon, ShoppingCart, Star } from "lucide-react";
-
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { useToast } from '@/hooks/use-toast';
 import { Link } from "react-router-dom";
-import { useCart } from "../context/CartContext";
-import { toast as sonnerToast } from "sonner";
+import { getApiErrorMessage, validateApiConfig, logError } from '@/utils/environment';
+import { queryKeys } from '@/lib/queryKeys';
+import { QUERY_CONFIG, RETRY_CONFIG } from '@/lib/queryConfig';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// Section component mapping for different section types
+const sectionComponents: Record<SectionType, React.ComponentType<{ section: HomepageSection }>> = {
+  hero_carousel: ({ section }) => <HeroCarousel />,
+  featured_books: ({ section }) => <FeaturedBooksSection section={section} />,
+  category_grid: ({ section }) => <CategoryGrid />,
+  promotional_banner: ({ section }) => <PromotionalBannerSection section={section} />,
+};
+
+// Loading skeleton for homepage sections with smooth animations
+const HomepageSectionSkeleton = ({ sectionType }: { sectionType: SectionType }) => {
+  return (
+    <div className="animate-in fade-in-0 duration-500">
+      <ProgressiveSectionSkeleton sectionType={sectionType} />
+    </div>
+  );
+};
+
+// Error component for failed section loading
+const SectionErrorFallback = ({ 
+  error, 
+  onRetry, 
+  sectionType 
+}: { 
+  error: Error; 
+  onRetry: () => void; 
+  sectionType?: SectionType;
+}) => (
+  <section className="py-16">
+    <div className="container mx-auto px-4">
+      <div className="text-center bg-red-50 border border-red-200 rounded-lg p-8">
+        <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+        <h3 className="text-lg font-semibold text-red-800 mb-2">
+          Failed to load {sectionType ? sectionType.replace('_', ' ') : 'section'}
+        </h3>
+        <p className="text-red-600 mb-4">{error.message}</p>
+        <button
+          onClick={onRetry}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </button>
+      </div>
+    </div>
+  </section>
+);
+
+// Book interface for type safety
+interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  language: string;
+  format: 'Hardcover' | 'Paperback' | 'eBook';
+  price: number;
+  currency: string;
+  isbn10?: string;
+  isbn13?: string;
+  publication_date: string;
+  pages?: number;
+  stock_status: 'In Stock' | 'Out of Stock' | 'Preorder';
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    bio: string;
+  }>;
+  category_id: string;
+  tags: string[];
+  is_latest_release: boolean;
+  rating?: number;
+}
+
+// Featured Books Section Component
+const FeaturedBooksSection = ({ section }: { section: HomepageSection }) => {
+  const [books, setBooks] = useState<Book[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const fetchFeaturedBooks = async () => {
+    try {
+      setError(null);
+      
+      // Validate API configuration
+      const apiConfig = validateApiConfig();
+      if (!apiConfig.isValid) {
+        throw new Error(apiConfig.error || 'API configuration error');
+      }
+
+      // Use the product IDs from section content if available
+      const productIds = section.content.products || [];
+      
+      if (productIds.length > 0) {
+        // Fetch specific products by IDs
+        // This would require an API endpoint that accepts multiple IDs
+        // For now, fall back to the existing new books endpoint
+      }
+      
+      // Try multiple endpoints for featured books
+      let response = await fetch(`${API_BASE_URL}/new-books`);
+      
+      if (!response.ok) {
+        response = await fetch(`${API_BASE_URL}/new-note`);
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (data.status === 200 && Array.isArray(data.records)) {
+        const normalizedBooks = data.records.map((apiBook: any) => normalizeApiBook(apiBook));
+        const validBooks = filterInvalidBooks(normalizedBooks);
+        const uniqueBooks = deduplicateBooks(validBooks);
+        setBooks(uniqueBooks.slice(0, 8));
+      } else {
+        throw new Error('Invalid API response format');
+      }
+    } catch (error) {
+      const errorMessage = getApiErrorMessage(error);
+      logError('Failed to fetch featured books', error);
+      
+      setError(errorMessage);
+      toast({
+        title: "Failed to Load Featured Books",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFeaturedBooks();
+  }, [section, toast]);
+
+  if (loading) {
+    return (
+      <div className="animate-in fade-in-0 duration-300">
+        <FeaturedBooksSkeleton />
+      </div>
+    );
+  }
+
+  if (error && books.length === 0) {
+    return (
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <div className="text-center bg-red-50 border border-red-200 rounded-lg p-8 max-w-md mx-auto">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-red-800 mb-2">
+              Failed to Load Featured Books
+            </h3>
+            <p className="text-red-600 mb-4">{error}</p>
+            <button
+              onClick={fetchFeaturedBooks}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="py-16 animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
+      <div className="container mx-auto px-4">
+        <div className="text-center mb-12 animate-in fade-in-0 slide-in-from-top-2 duration-500">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            {section.title || 'New & Noteworthy'}
+          </h2>
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Discover our latest releases and most popular titles
+          </p>
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {books.length > 0 ? (
+            books.map((book, index) => (
+              <div 
+                key={book.id}
+                className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <BookCard book={book} />
+              </div>
+            ))
+          ) : (
+            <div className="col-span-full text-center text-gray-500 animate-in fade-in-0 duration-300">
+              No books found.
+            </div>
+          )}
+        </div>
+      </div>  
+    </section>
+  );
+};
+
+// Promotional Banner Section Component
+const PromotionalBannerSection = ({ section }: { section: HomepageSection }) => {
+  const content = section.content;
+  
+  return (
+    <section className="py-16">
+      <div className="container mx-auto px-4">
+        <div 
+          className="relative rounded-lg overflow-hidden bg-gradient-to-r from-primary to-primary/80 text-white p-8 md:p-12"
+          style={content.banner_image ? { 
+            backgroundImage: `url(${content.banner_image})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
+          } : {}}
+        >
+          {content.banner_image && (
+            <div className="absolute inset-0 bg-black/40"></div>
+          )}
+          <div className="relative z-10 text-center max-w-3xl mx-auto">
+            {content.banner_title && (
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                {content.banner_title}
+              </h2>
+            )}
+            {content.banner_subtitle && (
+              <p className="text-lg md:text-xl mb-6 opacity-90">
+                {content.banner_subtitle}
+              </p>
+            )}
+            {content.banner_cta_text && content.banner_cta_link && (
+              <Link
+                to={content.banner_cta_link}
+                className="inline-block bg-white text-primary px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+              >
+                {content.banner_cta_text}
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
 
 // Helper function to normalize API book data to internal Book format
 const normalizeApiBook = (apiBook: any): Book => {
@@ -39,7 +301,7 @@ const normalizeApiBook = (apiBook: any): Book => {
       
       if (isLocal) {
         // Local development - Laravel storage path
-        cover = `http://127.0.0.1:8000/storage/products/${apiBook.product_image}`;
+        cover = `http://127.0.0.1:8000/images/products/${apiBook.product_image}`;
       } else {
         // Production
         cover = `https://sterlingpublishers.in/publishing/images/products/${apiBook.product_image}`;
@@ -112,330 +374,119 @@ const normalizeApiBook = (apiBook: any): Book => {
 };
 
 const Index = () => {
-  const [books, setBooks] = useState<Book[]>([]);
-
-  // Add new category states
-  const [shirdiBooks, setShirdiBooks] = useState<Book[]>([]);
-  const [otherReligious, setOtherReligious] = useState<Book[]>([]);
-  const [coffeeTableBooks, setCoffeeTableBooks] = useState<Book[]>([]);
-  const [textBooks, setTextBooks] = useState<Book[]>([]);
-
-  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
-  const { addToCart } = useCart();
+
+  // Fetch homepage sections using React Query with optimized caching
+  const {
+    data: sections,
+    isLoading,
+    error,
+    refetch
+  } = useQuery<HomepageSection[], Error>({
+    queryKey: queryKeys.content.homepageSections(),
+    queryFn: ContentService.getHomepageSections,
+    ...QUERY_CONFIG.CONTENT_DATA,
+    ...RETRY_CONFIG.DEFAULT,
+  });
+
+  // Handle errors with toast
+  useEffect(() => {
+    if (error) {
+      console.error('Failed to fetch homepage sections:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load homepage content. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [error, toast]);
 
   // Debug logging
   console.log('Index component rendered');
   console.log('API_BASE_URL:', API_BASE_URL);
-  console.log('Loading state:', loading);
-  console.log('Books count:', books.length);
+  console.log('Loading state:', isLoading);
+  console.log('Sections:', sections);
 
-  const fetchCategory = async (slug: string): Promise<Book[]> => {
-    try {
-      if (!API_BASE_URL) {
-        console.warn(`API_BASE_URL not configured for category ${slug}, using mock data`);
-        const { getBooksByCategory } = await import('@/data/mockData');
-        
-        // Map slug to category ID
-        const categoryMap: Record<string, string> = {
-          'books-on-shirdi-sai-baba': '2',
-          'other-religious-books': '3', 
-          'coffee-table-books-and-paperbacks': '4',
-          'text-book': '5'
-        };
-        
-        const categoryId = categoryMap[slug];
-        if (categoryId) {
-          // Mock data is already in Book format
-          return getBooksByCategory(categoryId).slice(0, 5);
-        }
-        return [];
-      }
-
-      const response = await fetch(`${API_BASE_URL}/book/${slug}`);
-      const data = await response.json();
-
-      if (data.status === 200 && Array.isArray(data.records)) {
-        // Filter out books with invalid IDs
-        const validBooks = data.records.filter((book: any) => {
-          const hasValidId = book.id && book.id !== 0 && book.id !== '0';
-          if (!hasValidId) {
-            console.warn(`⚠️ Skipping ${slug} book with invalid ID:`, book.product_name);
-          }
-          return hasValidId;
-        });
-        
-        // Normalize API books to internal Book format
-        return validBooks.map((apiBook: any) => normalizeApiBook(apiBook));
-      }
-
-      return [];
-    } catch (error) {
-      console.warn(`Failed to fetch category ${slug}, using mock data:`, error);
-      
-      // Fallback to mock data
-      try {
-        const { getBooksByCategory } = await import('@/data/mockData');
-        const categoryMap: Record<string, string> = {
-          'books-on-shirdi-sai-baba': '2',
-          'other-religious-books': '3', 
-          'coffee-table-books-and-paperbacks': '4',
-          'text-book': '5'
-        };
-        
-        const categoryId = categoryMap[slug];
-        if (categoryId) {
-          // Mock data is already in Book format
-          return getBooksByCategory(categoryId).slice(0, 5);
-        }
-      } catch (mockError) {
-        console.error(`Mock data failed for ${slug}:`, mockError);
-      }
-      
-      return [];
-    }
-  };
-
-  // Fetch New & Noteworthy
-  useEffect(() => {
-    const fetchBooks = async () => {
-      try {
-        if (!API_BASE_URL) {
-          console.warn('API_BASE_URL not configured, using mock data');
-          // Use mock data as fallback
-          const { getLatestReleases } = await import('@/data/mockData');
-          setBooks(getLatestReleases().slice(0, 8));
-          return;
-        }
-
-        // Try new-books endpoint first (returns more products)
-        let response = await fetch(`${API_BASE_URL}/new-books`);
-        
-        // If new-books fails, try new-note
-        if (!response.ok) {
-          console.warn('new-books endpoint failed, trying new-note...');
-          response = await fetch(`${API_BASE_URL}/new-note`);
-        }
-        
-        if (!response.ok) throw new Error('Failed to fetch books from both endpoints');
-
-        const data = await response.json();
-
-        if (data.status === 200 && Array.isArray(data.records)) {
-          // Filter out books with invalid IDs (0 or null)
-          const validBooks = data.records.filter((book: any) => {
-            const hasValidId = book.id && book.id !== 0 && book.id !== '0';
-            if (!hasValidId) {
-              console.warn(`⚠️ Skipping book with invalid ID:`, book.product_name, book.id);
-            }
-            return hasValidId;
-          });
-          
-          if (validBooks.length === 0) {
-            throw new Error('No valid books found in API response');
-          }
-          
-          // Log first book to check data structure
-          if (validBooks.length > 0) {
-            console.log('📚 Sample valid book from API:', validBooks[0]);
-            console.log('Book ID:', validBooks[0].id, 'Type:', typeof validBooks[0].id);
-          }
-          
-          // Normalize API books to internal Book format
-          const normalizedBooks = validBooks.map((apiBook: any) => {
-            const normalized = normalizeApiBook(apiBook);
-            console.log(`📖 Normalized: ${normalized.title} → ID: ${normalized.id}`);
-            return normalized;
-          }).slice(0, 8); // Take only first 8 books
-          
-          setBooks(normalizedBooks);
-          console.log(`✅ Loaded ${normalizedBooks.length} valid books for home page`);
-        } else {
-          throw new Error('Invalid response format');
-        }
-      } catch (error) {
-        console.error('API failed, using mock data:', error);
-        // Fallback to mock data
-        try {
-          const { getLatestReleases } = await import('@/data/mockData');
-          setBooks(getLatestReleases().slice(0, 8));
-        } catch (mockError) {
-          console.error('Mock data also failed:', mockError);
-          toast({
-            title: "Error",
-            description: "Failed to load books.",
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    fetchBooks();
-  }, [toast]);
-
-  // Fetch all category sections
-  useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        console.log('Loading categories...');
-        setShirdiBooks(await fetchCategory('books-on-shirdi-sai-baba'));
-        setOtherReligious(await fetchCategory('other-religious-books'));
-        setCoffeeTableBooks(await fetchCategory('coffee-table-books-and-paperbacks'));
-        setTextBooks(await fetchCategory('text-book'));
-        console.log('Categories loaded successfully');
-      } catch (error) {
-        console.error('Error loading categories:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadCategories();
-  }, []);
-
-  if (loading) {
+  // Loading state with progressive skeleton loading
+  if (isLoading) {
     console.log('Showing loading state...');
     return (
       <div className="min-h-screen bg-white">
-        <div className="text-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading books...</p>
-          <p className="text-xs text-gray-400 mt-2">API: {API_BASE_URL || 'Not configured'}</p>
-        </div>
+        <HomepageLoadingSkeleton />
       </div>
     );
   }
 
-  console.log('Rendering main content...');
+  // Error state
+  if (error) {
+    console.error('Homepage sections error:', error);
+    return (
+      <div className="min-h-screen bg-white">
+        <SectionErrorFallback 
+          error={error as Error} 
+          onRetry={() => refetch()} 
+        />
+      </div>
+    );
+  }
+
+  // Filter active sections and sort by sort_order
+  const activeSections = Array.isArray(sections) 
+    ? sections
+        .filter(section => section.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order)
+    : [];
+
+  console.log('Rendering dynamic sections:', activeSections.length);
 
   return (
     <div>
-      {/* Hero Carousel */}
-      <HeroCarousel />
-      
-      {/* New & Noteworthy Section */}
-      <section className="py-16">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">New & Noteworthy</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Discover our latest releases and most popular titles
-            </p>
-          </div>
+      {activeSections.length > 0 ? (
+        activeSections.map((section) => {
+          const SectionComponent = sectionComponents[section.section_type];
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {books.length > 0 ? (
-              books.map((book) => (
-                <BookCard key={book.id} book={book} />
-              ))
-            ) : (
-              <div className="col-span-full text-center text-gray-500">
-                No books found.
-              </div>
-            )}
-          </div>
-        </div>  
-      </section>
-      
-      {/* Category Grid */}
-      <CategoryGrid />
-      
-      {/* Shirdi Books */}
-      <section className="py-16 scroll-mt-20">
-        <div className="container mx-auto px-4">
-          <div className="mb-8 flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Books on Shirdi Sai Baba</h2>
-              <div className="w-16 h-1 bg-primary"></div>
-            </div>
-            <Link 
-              to="/books?category=shirdi-sai-baba" 
-              className="text-primary hover:underline font-medium"
+          if (!SectionComponent) {
+            console.warn(`No component found for section type: ${section.section_type}`);
+            return (
+              <section key={section.id} className="py-16">
+                <div className="container mx-auto px-4">
+                  <div className="text-center text-gray-500">
+                    <p>Unsupported section type: {section.section_type}</p>
+                  </div>
+                </div>
+              </section>
+            );
+          }
+
+          return (
+            <div 
+              key={section.id}
+              className="animate-in fade-in-0 slide-in-from-bottom-2 duration-700"
+              style={{ animationDelay: `${activeSections.indexOf(section) * 200}ms` }}
             >
-              View All Books →
-            </Link>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {shirdiBooks.map((book) => (
-              <BookCard key={book.id} book={book} />
-            ))}
+              <SectionComponent section={section} />
+            </div>
+          );
+        })
+      ) : (
+        // Fallback content when no sections are configured
+        <div className="min-h-screen bg-white">
+          <div className="container mx-auto px-4 py-20">
+            <div className="text-center">
+              <h1 className="text-4xl font-bold mb-4">Welcome to Sterling Publishers</h1>
+              <p className="text-lg text-muted-foreground mb-8">
+                Your trusted source for quality books and publications
+              </p>
+              <Link 
+                to="/books" 
+                className="inline-block bg-primary text-white px-8 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Browse Our Catalog
+              </Link>
+            </div>
           </div>
         </div>
-      </section>
-
-      {/* Other Religious Books */}
-      <section className="py-16 scroll-mt-20">
-        <div className="container mx-auto px-4">
-          <div className="mb-8 flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Other Religious Books</h2>
-              <div className="w-16 h-1 bg-primary"></div>
-            </div>
-            <Link 
-              to="/books?category=other-religious" 
-              className="text-primary hover:underline font-medium"
-            >
-              View All Books →
-            </Link>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {otherReligious.map((book) => (
-              <BookCard key={book.id} book={book} />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Coffee Table Books */}
-      <section className="py-16 scroll-mt-20">
-        <div className="container mx-auto px-4">
-          <div className="mb-8 flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Coffee Table Books and Paperbacks</h2>
-              <div className="w-16 h-1 bg-primary"></div>
-            </div>
-            <Link 
-              to="/books?category=coffee-table-paperbacks" 
-              className="text-primary hover:underline font-medium"
-            >
-              View All Books →
-            </Link>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {coffeeTableBooks.map((book) => (
-              <BookCard key={book.id} book={book} />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Text Books */}
-      <section className="py-16 scroll-mt-20">
-        <div className="container mx-auto px-4">
-          <div className="mb-8 flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-left mb-2">Text Books</h2>
-              <div className="w-16 h-1 bg-primary"></div>
-            </div>
-            <Link 
-              to="/books?category=textbooks" 
-              className="text-primary hover:underline font-medium"
-            >
-              View All Books →
-            </Link>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {textBooks.map((book) => (
-              <BookCard key={book.id} book={book} />
-            ))}
-          </div>
-        </div>
-      </section>
-
+      )}
     </div>
   );
 };

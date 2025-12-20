@@ -17,4 +17,8 @@ export default defineConfig({
       },
     },
   },
+  define: {
+    // Ensure environment variables are properly defined
+    __ALLOW_MOCK_DATA__: JSON.stringify(process.env.NODE_ENV !== 'production'),
+  },
 });

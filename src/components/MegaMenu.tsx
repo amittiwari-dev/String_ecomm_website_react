@@ -1,263 +1,137 @@
 import { Link } from 'react-router-dom';
-import { getCategoriesByParent, getBooksByCategory } from '@/data/mockData';
-import { CategoryMenuItem } from '@/services/menuService';
+import { useQuery } from '@tanstack/react-query';
+import { RefreshCw, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { MenuService, CategoryMenuItem } from '@/services/menuService';
 import { MegaMenuSkeleton } from '@/components/ui/menu-skeleton';
+import { queryKeys } from '@/lib/queryKeys';
+import { QUERY_CONFIG, RETRY_CONFIG } from '@/lib/queryConfig';
 
 interface MegaMenuProps {
-  categories?: CategoryMenuItem[];
-  isLoading?: boolean;
-  error?: string | null;
+  // Remove props as we'll fetch data directly with React Query
 }
 
-const MegaMenu = ({ categories: dynamicCategories, isLoading = false, error = null }: MegaMenuProps) => {
-  // Use dynamic categories if provided, otherwise fall back to static data
-  const staticCategories = getCategoriesByParent(null).filter(cat => cat.id !== '1');
-  const fallbackCategories: CategoryMenuItem[] = staticCategories.map(cat => ({
-    id: cat.id,
-    name: cat.name,
-    slug: cat.slug,
-    bookCount: 0, // Will be 0 for fallback data
-    isActive: false,
-    parent_id: cat.parent_id,
-    sort_order: cat.sort_order
-  }));
-  
-  const mainCategories = dynamicCategories || fallbackCategories;
+const MegaMenu = ({}: MegaMenuProps) => {
+  // Use React Query to fetch menu data with optimized caching
+  const { 
+    data: categories, 
+    isLoading, 
+    error, 
+    refetch 
+  } = useQuery<CategoryMenuItem[], Error>({
+    queryKey: queryKeys.menu.menuData(),
+    queryFn: MenuService.getMenuData,
+    ...QUERY_CONFIG.MENU_DATA,
+    ...RETRY_CONFIG.CRITICAL,
+  });
 
-  // Filter out empty categories (categories with no books)
-  const activeCategories = mainCategories.filter(category => 
-    category.bookCount > 0 || (category.children && category.children.some(child => child.bookCount > 0))
-  );
+  // Filter out inactive categories and sort by sort_order
+  const activeCategories = (categories || [])
+    .filter(category => category.is_active && category.book_count > 0)
+    .sort((a, b) => a.sort_order - b.sort_order);
 
-  // Removed preview functionality since we only show categories now
-
-  // Removed book preview and subcategory functions since we only show main categories now
-
-  // Loading state
+  // Loading state with smooth transition
   if (isLoading) {
     return (
-      <div className="w-full max-w-[800px] lg:w-[800px]">
+      <div className="w-full max-w-[800px] lg:w-[800px] animate-in fade-in-0 duration-300">
         <MegaMenuSkeleton />
       </div>
     );
   }
 
-  // Error state - use fixed categories as fallback
+  // Error state with retry button
   if (error) {
-    const fixedCategories: CategoryMenuItem[] = [
-      {
-        id: '2',
-        name: 'Books on Shirdi Sai Baba',
-        slug: 'shirdi-sai-baba',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 2
-      },
-      {
-        id: '3',
-        name: 'Other Religious Books',
-        slug: 'other-religious',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 3
-      },
-      {
-        id: '4',
-        name: 'Coffee Table Books and Paperbacks',
-        slug: 'coffee-table-paperbacks',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 4
-      },
-      {
-        id: '5',
-        name: 'Text Books',
-        slug: 'textbooks',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 5
-      }
-    ];
-
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 p-4 lg:p-6 w-full max-w-[800px] lg:w-[800px]">
-        {/* Latest Releases - Special column */}
-        <div>
-          <h3 className="font-semibold text-primary mb-3">
-            <Link to="/latest-releases" className="hover:underline">
-              Latest Releases
-            </Link>
-          </h3>
-          <p className="text-xs text-muted-foreground mb-2">
-            Discover our newest publications
-          </p>
-          <Link 
-            to="/latest-releases"
-            className="text-sm text-primary hover:underline"
-          >
-            View All Latest →
-          </Link>
-        </div>
-
-        {/* Fixed categories - only show category names */}
-        {fixedCategories.map((category) => {
-          // Get book count for this category
-          const categoryBooks = getBooksByCategory(category.id);
-          const bookCount = categoryBooks.length;
-          
-          return (
-            <div key={category.id}>
-              <h3 className="font-semibold text-primary mb-3">
-                <Link 
-                  to={`/books?category=${encodeURIComponent(category.name)}`}
-                  className="hover:underline"
-                >
-                  {category.name}
-                </Link>
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                {bookCount} {bookCount === 1 ? 'book' : 'books'} available
-              </p>
-            </div>
-          );
-        })}
+      <div className="w-full max-w-[800px] lg:w-[800px] p-4 lg:p-6">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>Failed to load menu categories. Please try again.</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="ml-2"
+            >
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
 
-  // Empty state - use fixed categories as fallback
+  // Empty state
   if (activeCategories.length === 0) {
-    const fixedCategories: CategoryMenuItem[] = [
-      {
-        id: '2',
-        name: 'Books on Shirdi Sai Baba',
-        slug: 'shirdi-sai-baba',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 2
-      },
-      {
-        id: '3',
-        name: 'Other Religious Books',
-        slug: 'other-religious',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 3
-      },
-      {
-        id: '4',
-        name: 'Coffee Table Books and Paperbacks',
-        slug: 'coffee-table-paperbacks',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 4
-      },
-      {
-        id: '5',
-        name: 'Text Books',
-        slug: 'textbooks',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 5
-      }
-    ];
-
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 p-4 lg:p-6 w-full max-w-[800px] lg:w-[800px]">
-        {/* Latest Releases - Special column */}
-        <div>
-          <h3 className="font-semibold text-primary mb-3">
-            <Link to="/latest-releases" className="hover:underline">
-              Latest Releases
-            </Link>
-          </h3>
-          <p className="text-xs text-muted-foreground mb-2">
-            Discover our newest publications
-          </p>
-          <Link 
-            to="/latest-releases"
-            className="text-sm text-primary hover:underline"
+      <div className="w-full max-w-[800px] lg:w-[800px] p-4 lg:p-6">
+        <div className="text-center text-muted-foreground">
+          <p>No categories available at the moment.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            className="mt-2"
           >
-            View All Latest →
-          </Link>
+            <RefreshCw className="h-3 w-3 mr-1" />
+            Refresh
+          </Button>
         </div>
-
-        {/* Fixed categories - only show category names */}
-        {fixedCategories.map((category) => {
-          // Get book count for this category
-          const categoryBooks = getBooksByCategory(category.id);
-          const bookCount = categoryBooks.length;
-          
-          return (
-            <div key={category.id}>
-              <h3 className="font-semibold text-primary mb-3">
-                <Link 
-                  to={`/books?category=${encodeURIComponent(category.name)}`}
-                  className="hover:underline"
-                >
-                  {category.name}
-                </Link>
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                {bookCount} {bookCount === 1 ? 'book' : 'books'} available
-              </p>
-            </div>
-          );
-        })}
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 p-4 lg:p-6 w-full max-w-[800px] lg:w-[800px]">
-      {/* Latest Releases - Special column */}
-      <div>
-        <h3 className="font-semibold text-primary mb-3">
-          <Link to="/latest-releases" className="hover:underline">
-            Latest Releases
-          </Link>
-        </h3>
-        <p className="text-xs text-muted-foreground mb-2">
-          Discover our newest publications
-        </p>
-        <Link 
-          to="/latest-releases"
-          className="text-sm text-primary hover:underline"
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 p-4 lg:p-6 w-full max-w-[800px] lg:w-[800px] animate-in fade-in-0 slide-in-from-top-2 duration-500">
+      {/* All categories from API - completely dynamic */}
+      {activeCategories.map((category, index) => (
+        <div 
+          key={category.id} 
+          className="animate-in fade-in-0 slide-in-from-left-4 duration-700"
+          style={{ animationDelay: `${(index + 1) * 100}ms` }}
         >
-          View All Latest →
-        </Link>
-      </div>
-
-      {/* Other main categories - only show category names */}
-      {activeCategories.map((category) => {
-        // Get book count for this category
-        const categoryBooks = getBooksByCategory(category.id);
-        const bookCount = categoryBooks.length;
-        
-        return (
-          <div key={category.id}>
-            <h3 className="font-semibold text-primary mb-3">
-              <Link 
-                to={`/books?category=${encodeURIComponent(category.name)}`}
-                className="hover:underline"
-              >
-                {category.name}
-              </Link>
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              {bookCount} {bookCount === 1 ? 'book' : 'books'} available
-            </p>
-          </div>
-        );
-      })}
+          <h3 className="font-semibold text-primary mb-3">
+            <Link 
+              to={`/books?category=${category.slug}`}
+              className="hover:underline"
+            >
+              {category.name}
+            </Link>
+          </h3>
+          <p className="text-xs text-muted-foreground mb-2">
+            {category.book_count} {category.book_count === 1 ? 'book' : 'books'} available
+          </p>
+          
+          {/* Display subcategories if they exist */}
+          {category.children && category.children.length > 0 && (
+            <div className="space-y-1">
+              {category.children
+                .filter(child => child.is_active && child.book_count > 0)
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .slice(0, 3) // Show only first 3 subcategories
+                .map((subcategory) => (
+                  <Link
+                    key={subcategory.id}
+                    to={`/books?category=${category.slug}&subcategory=${subcategory.slug}`}
+                    className="block text-xs text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    {subcategory.name} ({subcategory.book_count})
+                  </Link>
+                ))}
+              {category.children.filter(child => child.is_active && child.book_count > 0).length > 3 && (
+                <Link
+                  to={`/books?category=${category.slug}`}
+                  className="block text-xs text-primary hover:underline"
+                >
+                  View all subcategories →
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 };

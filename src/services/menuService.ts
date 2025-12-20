@@ -1,16 +1,177 @@
-import { Category, getCategoryById, getCategoriesByParent, getBooksByCategory } from '../data/mockData';
+import { ApiError } from '../lib/errorHandler';
 
+// Get API base URL from environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+
+// TypeScript interfaces for menu service
 export interface CategoryMenuItem {
   id: string;
   name: string;
   slug: string;
-  bookCount: number;
-  children?: CategoryMenuItem[];
-  isActive: boolean;
   parent_id: string | null;
+  sort_order: number;
+  is_active: boolean;
+  book_count: number;
+  children?: CategoryMenuItem[];
+}
+
+export interface FooterLink {
+  id: string;
+  title: string;
+  url: string;
+  is_external: boolean;
   sort_order: number;
 }
 
+export interface FooterLinks {
+  quick_links: FooterLink[];
+  categories: FooterLink[];
+  contact: FooterLink[];
+}
+
+// API response interface
+interface ApiResponse<T> {
+  status: number;
+  data: T;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Helper function to handle API responses with consistent error handling
+ */
+const handleApiResponse = async <T>(response: Response): Promise<T> => {
+  let responseData;
+  
+  try {
+    responseData = await response.json();
+  } catch (parseError) {
+    // If JSON parsing fails, create a generic error response
+    responseData = { 
+      message: response.ok ? 'Invalid response format' : `HTTP ${response.status}: ${response.statusText}` 
+    };
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      responseData.message || `Request failed with status ${response.status}`,
+      response.status,
+      responseData.errors
+    );
+  }
+
+  return responseData;
+};
+
+/**
+ * Menu Service for fetching dynamic menu data from Laravel backend API
+ */
+export const MenuService = {
+  /**
+   * Get all active categories with subcategories and book counts
+   * Endpoint: GET /api/categories
+   */
+  getCategories: async (): Promise<CategoryMenuItem[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/categories`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data: ApiResponse<CategoryMenuItem[]> = await handleApiResponse(response);
+      
+      if (data.status === 200 && data.data) {
+        return data.data;
+      }
+
+      throw new ApiError(data.message || 'Failed to fetch categories', data.status || 500);
+    } catch (error) {
+      console.error('Failed to fetch categories:', error);
+      
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
+      throw new ApiError('Network error while fetching categories', 500);
+    }
+  },
+
+  /**
+   * Get optimized menu data specifically for mega menu rendering
+   * Endpoint: GET /api/menu-data
+   */
+  getMenuData: async (): Promise<CategoryMenuItem[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/menu-data`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data: ApiResponse<CategoryMenuItem[]> = await handleApiResponse(response);
+      
+      if (data.status === 200 && data.data) {
+        return data.data;
+      }
+
+      throw new ApiError(data.message || 'Failed to fetch menu data', data.status || 500);
+    } catch (error) {
+      console.error('Failed to fetch menu data:', error);
+      
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
+      throw new ApiError('Network error while fetching menu data', 500);
+    }
+  },
+
+  /**
+   * Get footer links organized by section
+   * Endpoint: GET /api/footer-links
+   */
+  getFooterLinks: async (): Promise<FooterLinks> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/footer-links`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data: ApiResponse<FooterLinks> = await handleApiResponse(response);
+      
+      if (data.status === 200 && data.data) {
+        // Ensure all expected sections exist, even if empty
+        const footerLinks: FooterLinks = {
+          quick_links: data.data.quick_links || [],
+          categories: data.data.categories || [],
+          contact: data.data.contact || [],
+        };
+        
+        return footerLinks;
+      }
+
+      throw new ApiError(data.message || 'Failed to fetch footer links', data.status || 500);
+    } catch (error) {
+      console.error('Failed to fetch footer links:', error);
+      
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
+      throw new ApiError('Network error while fetching footer links', 500);
+    }
+  },
+};
+
+// Additional interfaces for backward compatibility
 export interface MenuState {
   categories: CategoryMenuItem[];
   isLoading: boolean;
@@ -18,19 +179,15 @@ export interface MenuState {
   error: string | null;
 }
 
-export interface MenuCacheEntry {
-  data: CategoryMenuItem[];
-  timestamp: Date;
-  expiresAt: Date;
-}
-
-class MenuService {
-  private cache: MenuCacheEntry | null = null;
+/**
+ * Backward compatible menu service class for existing hooks
+ */
+class MenuServiceClass {
+  private cache: { data: CategoryMenuItem[]; timestamp: Date; expiresAt: Date } | null = null;
   private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-
   /**
-   * Get menu categories with book counts and caching
+   * Get menu categories with caching (backward compatible method)
    */
   async getMenuCategories(): Promise<CategoryMenuItem[]> {
     // Check cache first
@@ -39,114 +196,20 @@ class MenuService {
     }
 
     try {
-      // Get top-level categories directly - no complex async operations
-      const topLevelCategories = getCategoriesByParent(null);
-      
-      if (!topLevelCategories || topLevelCategories.length === 0) {
-        return this.getFallbackMenu();
-      }
-
-      const menuItems: CategoryMenuItem[] = [];
-
-      // Build menu items synchronously to avoid timing issues
-      for (const category of topLevelCategories) {
-        const menuItem = this.buildCategoryMenuItemSync(category);
-        if (menuItem) {
-          menuItems.push(menuItem);
-        }
-      }
-
-      const sortedItems = menuItems.sort((a, b) => a.sort_order - b.sort_order);
+      const categories = await MenuService.getMenuData();
       
       // Update cache
       this.cache = {
-        data: sortedItems,
+        data: categories,
         timestamp: new Date(),
         expiresAt: new Date(Date.now() + this.CACHE_DURATION)
       };
 
-      return sortedItems;
+      return categories;
     } catch (error) {
-      console.warn('Menu service error, using fallback:', error);
-      return this.getFallbackMenu();
+      console.error('Failed to fetch menu categories:', error);
+      throw error;
     }
-  }
-
-  /**
-   * Get fallback menu when everything fails
-   */
-  private getFallbackMenu(): CategoryMenuItem[] {
-    return [
-      {
-        id: '2',
-        name: 'Books on Shirdi Sai Baba',
-        slug: 'shirdi-sai-baba',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 2
-      },
-      {
-        id: '3',
-        name: 'Other Religious Books',
-        slug: 'other-religious',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 3
-      },
-      {
-        id: '4',
-        name: 'Coffee Table Books and Paperbacks',
-        slug: 'coffee-table-paperbacks',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 4
-      },
-      {
-        id: '5',
-        name: 'Text Books',
-        slug: 'textbooks',
-        bookCount: 0,
-        isActive: true,
-        parent_id: null,
-        sort_order: 5
-      }
-    ];
-  }
-
-  /**
-   * Get book count for a specific category (including subcategories) - synchronous
-   */
-  getCategoryBookCountSync(categoryId: string): number {
-    try {
-      const category = getCategoryById(categoryId);
-      if (!category) {
-        return 0;
-      }
-
-      // Get books directly in this category
-      let bookCount = getBooksByCategory(categoryId).length;
-
-      // Add books from subcategories
-      const subcategories = getCategoriesByParent(categoryId);
-      for (const subcategory of subcategories) {
-        bookCount += getBooksByCategory(subcategory.id).length;
-      }
-
-      return bookCount;
-    } catch (error) {
-      console.error(`Error getting book count for category ${categoryId}:`, error);
-      return 0;
-    }
-  }
-
-  /**
-   * Get book count for a specific category (including subcategories) - async wrapper
-   */
-  async getCategoryBookCount(categoryId: string): Promise<number> {
-    return this.getCategoryBookCountSync(categoryId);
   }
 
   /**
@@ -158,106 +221,18 @@ class MenuService {
   }
 
   /**
-   * Get category preview books (for hover functionality)
+   * Get category preview books (placeholder implementation)
+   * Note: This functionality will need to be implemented with a proper API endpoint
    */
   async getCategoryPreview(categoryId: string, limit: number = 4): Promise<any[]> {
-    try {
-      const categoryBooks = getBooksByCategory(categoryId);
-      
-      // Return top books (by rating or bestseller rank)
-      return categoryBooks
-        .sort((a, b) => {
-          // Sort by bestseller rank first, then by rating
-          if (a.bestseller_rank && b.bestseller_rank) {
-            return a.bestseller_rank - b.bestseller_rank;
-          }
-          if (a.bestseller_rank) return -1;
-          if (b.bestseller_rank) return 1;
-          return (b.rating || 0) - (a.rating || 0);
-        })
-        .slice(0, limit)
-        .map(book => ({
-          id: book.id,
-          title: book.title,
-          price: book.price,
-          currency: book.currency,
-          image: book.images[0] || '/img/book-categori/book-placeholder.png',
-          authors: book.authors.map(author => author.name).join(', '),
-          rating: book.rating
-        }));
-    } catch (error) {
-      console.error(`Error getting category preview for ${categoryId}:`, error);
-      return [];
-    }
+    // For now, return empty array as this requires a separate API endpoint
+    // This can be implemented later when the backend provides category preview endpoints
+    console.warn('getCategoryPreview not yet implemented with API - returning empty array');
+    return [];
   }
 
   /**
-   * Check if category should be displayed (has books or active subcategories) - synchronous
-   */
-  private isCategoryActiveSync(category: Category): boolean {
-    // Check if category has books
-    const bookCount = this.getCategoryBookCountSync(category.id);
-    if (bookCount > 0) return true;
-
-    // Check if any subcategories are active
-    const subcategories = getCategoriesByParent(category.id);
-    for (const subcategory of subcategories) {
-      if (this.isCategoryActiveSync(subcategory)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Build category menu item with book count and children - synchronous
-   */
-  private buildCategoryMenuItemSync(category: Category): CategoryMenuItem | null {
-    try {
-      const isActive = this.isCategoryActiveSync(category);
-      
-      // Skip inactive categories
-      if (!isActive) return null;
-
-      const bookCount = this.getCategoryBookCountSync(category.id);
-      const subcategories = getCategoriesByParent(category.id) || [];
-      
-      const children: CategoryMenuItem[] = [];
-      for (const subcategory of subcategories) {
-        try {
-          const childItem = this.buildCategoryMenuItemSync(subcategory);
-          if (childItem) {
-            children.push(childItem);
-          }
-        } catch (childError) {
-          console.warn(`Failed to build child menu item for ${subcategory.id}:`, childError);
-          // Continue with other children
-        }
-      }
-
-      return {
-        id: category.id,
-        name: category.name,
-        slug: category.slug,
-        bookCount,
-        children: children.length > 0 ? children : undefined,
-        isActive,
-        parent_id: category.parent_id,
-        sort_order: category.sort_order
-      };
-    } catch (error) {
-      console.error(`Error building category menu item for ${category.id}:`, error);
-      return null;
-    }
-  }
-
-
-
-
-
-  /**
-   * Clear cache (useful for testing or forced refresh)
+   * Clear cache
    */
   clearCache(): void {
     this.cache = null;
@@ -279,7 +254,9 @@ class MenuService {
   }
 }
 
-// Export singleton instance
-const menuService = new MenuService();
+// Export singleton instance for backward compatibility
+const menuService = new MenuServiceClass();
 export { menuService };
-export default menuService;
+
+// Export individual methods for convenience
+export const { getCategories, getMenuData, getFooterLinks } = MenuService;

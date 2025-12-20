@@ -1,15 +1,61 @@
-import { Book, books } from '../data/mockData';
 import { ApiError } from '../lib/errorHandler';
+
+// Book interface for type safety
+export interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  language: string;
+  format: 'Hardcover' | 'Paperback' | 'eBook';
+  price: number;
+  currency: string;
+  isbn10?: string;
+  isbn13?: string;
+  publication_date: string;
+  pages?: number;
+  stock_status: 'In Stock' | 'Out of Stock' | 'Preorder';
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    bio: string;
+  }>;
+  series?: string;
+  category_id: string;
+  tags: string[];
+  bestseller_rank?: number;
+  is_latest_release: boolean;
+  rating?: number;
+}
 
 // Get API base URL from environment variable
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 // Helper function to normalize API book data to our Book interface
 const normalizeApiBookToBook = (apiBook: any): Book => {
-  const base = 'https://sterlingpublishers.in/publishing';
-  const cover = apiBook.product_image
-    ? `${base}/images/products/${apiBook.product_image}`
-    : '/img/book-categori/book-placeholder.png';
+  // Handle image URL - check if it's a full URL or just filename
+  let cover = '/img/book-categori/book-placeholder.png';
+  
+  if (apiBook.product_image) {
+    // If product_image is already a full URL, use it as is
+    if (apiBook.product_image.startsWith('http://') || apiBook.product_image.startsWith('https://')) {
+      cover = apiBook.product_image;
+    } else {
+      // Otherwise, construct the URL based on environment
+      const isLocal = API_BASE_URL?.includes('localhost') || API_BASE_URL?.includes('127.0.0.1');
+      
+      if (isLocal) {
+        // Local development - Laravel storage path
+        cover = `http://127.0.0.1:8000/storage/products/${apiBook.product_image}`;
+      } else {
+        // Production
+        cover = `https://sterlingpublishers.in/publishing/images/products/${apiBook.product_image}`;
+      }
+    }
+  }
 
   return {
     id: apiBook.id?.toString() || '0',
@@ -247,25 +293,65 @@ const authenticatedFetchWithRetry = async <T>(
   });
 };
 
+// Enhanced Book Service Types
+export interface BookFilters {
+  category?: string;
+  subcategory?: string;
+  search?: string;
+  sortBy?: 'price' | 'title' | 'rating' | 'date';
+  order?: 'asc' | 'desc';
+  page?: number;
+  per_page?: number;
+}
+
+export interface PaginatedBooks {
+  data: Book[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+  };
+}
+
 // Book Service
 export const BookService = {
   // Get all books with optional filters
-  getAllBooks: async (filters?: {
-    category?: string;
-    search?: string;
-    sortBy?: 'price' | 'title' | 'rating';
-    order?: 'asc' | 'desc';
-  }): Promise<ApiResponse<Book[]>> => {
+  getAllBooks: async (filters?: BookFilters): Promise<ApiResponse<Book[]>> => {
     try {
-      // Call real API endpoint
-      const response = await fetch(`${API_BASE_URL}/new-books`);
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (filters?.category) params.append('category', filters.category);
+      if (filters?.subcategory) params.append('subcategory', filters.subcategory);
+      if (filters?.search) params.append('search', filters.search);
+      if (filters?.sortBy) params.append('sort', filters.sortBy);
+      if (filters?.order) params.append('order', filters.order);
+      if (filters?.page) params.append('page', filters.page.toString());
+      if (filters?.per_page) params.append('per_page', filters.per_page.toString());
+
+      // Call enhanced products API endpoint
+      const response = await fetch(`${API_BASE_URL}/products?${params.toString()}`);
       const data = await response.json();
       
-      if (data.status === 200 && data.records) {
+      if (data.status === 200 && data.data) {
         // Convert API books to our Book format
-        const books: Book[] = data.records.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        const books: Book[] = data.data.map((apiBook: any) => normalizeApiBookToBook(apiBook));
         
-        // Apply filters if provided
+        return {
+          data: books,
+          status: 200,
+        };
+      }
+      
+      // Fallback to existing endpoint if new one doesn't exist yet
+      const fallbackResponse = await fetch(`${API_BASE_URL}/new-books`);
+      const fallbackData = await fallbackResponse.json();
+      
+      if (fallbackData.status === 200 && fallbackData.records) {
+        // Convert API books to our Book format
+        const books: Book[] = fallbackData.records.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        
+        // Apply filters client-side for fallback
         let filteredBooks = [...books];
         
         if (filters) {
@@ -295,6 +381,9 @@ export const BookService = {
                 case 'rating':
                   comparison = (b.rating || 0) - (a.rating || 0);
                   break;
+                case 'date':
+                  comparison = new Date(a.publication_date).getTime() - new Date(b.publication_date).getTime();
+                  break;
               }
               return filters.order === 'desc' ? -comparison : comparison;
             });
@@ -313,11 +402,7 @@ export const BookService = {
       };
     } catch (error) {
       console.error('Failed to fetch books:', error);
-      return {
-        data: [],
-        status: 500,
-        message: 'Failed to fetch books'
-      };
+      throw new ApiError('Failed to fetch books', 500);
     }
   },
 
@@ -326,17 +411,25 @@ export const BookService = {
     console.log('Fetching book with ID:', id);
     
     try {
-      // First try to get all books and find the one with matching ID
+      // Try to get single product from API first
+      const response = await fetch(`${API_BASE_URL}/products/${id}`);
+      const data = await response.json();
+      
+      if (data.status === 200 && data.data) {
+        const book = normalizeApiBookToBook(data.data);
+        return {
+          data: book,
+          status: 200
+        };
+      }
+      
+      // Fallback to searching all books
       const allBooksResponse = await BookService.getAllBooks();
       const book = allBooksResponse.data.find(book => book.id === id);
       
       if (!book) {
         console.error(`Book with ID "${id}" not found`);
-        return {
-          data: null,
-          status: 404,
-          message: 'Book not found'
-        };
+        throw new ApiError('Book not found', 404);
       }
 
       return {
@@ -345,23 +438,34 @@ export const BookService = {
       };
     } catch (error) {
       console.error('Failed to fetch book:', error);
-      return {
-        data: null,
-        status: 500,
-        message: 'Failed to fetch book'
-      };
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('Failed to fetch book', 500);
     }
   },
 
-  // Get featured books
+  // Get featured books for homepage
   getFeaturedBooks: async (): Promise<ApiResponse<Book[]>> => {
     try {
-      // Get Shirdi Sai Baba books as featured
-      const response = await fetch(`${API_BASE_URL}/shirdi-sai-baba`);
+      // Try to get featured products from API first
+      const response = await fetch(`${API_BASE_URL}/products?featured=true&per_page=8`);
       const data = await response.json();
       
-      if (data.status === 200 && data.records) {
-        const books: Book[] = data.records.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+      if (data.status === 200 && data.data) {
+        const books: Book[] = data.data.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        return {
+          data: books,
+          status: 200
+        };
+      }
+      
+      // Fallback to Shirdi Sai Baba books as featured
+      const fallbackResponse = await fetch(`${API_BASE_URL}/shirdi-sai-baba`);
+      const fallbackData = await fallbackResponse.json();
+      
+      if (fallbackData.status === 200 && fallbackData.records) {
+        const books: Book[] = fallbackData.records.map((apiBook: any) => normalizeApiBookToBook(apiBook));
         return {
           data: books,
           status: 200
@@ -374,22 +478,36 @@ export const BookService = {
       };
     } catch (error) {
       console.error('Failed to fetch featured books:', error);
-      return {
-        data: [],
-        status: 500
-      };
+      throw new ApiError('Failed to fetch featured books', 500);
     }
+  },
+
+  // Get products for homepage featured section
+  getFeaturedProducts: async (): Promise<ApiResponse<Book[]>> => {
+    return BookService.getFeaturedBooks();
   },
 
   // Get new releases
   getNewReleases: async (): Promise<ApiResponse<Book[]>> => {
     try {
-      // Get new books from API
-      const response = await fetch(`${API_BASE_URL}/new-books`);
+      // Try enhanced products API first
+      const response = await fetch(`${API_BASE_URL}/products?sort=date&order=desc&per_page=8`);
       const data = await response.json();
       
-      if (data.status === 200 && data.records) {
-        const books: Book[] = data.records.map((apiBook: any) => normalizeApiBookToBook(apiBook)).slice(0, 8);
+      if (data.status === 200 && data.data) {
+        const books: Book[] = data.data.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        return {
+          data: books,
+          status: 200
+        };
+      }
+      
+      // Fallback to existing endpoint
+      const fallbackResponse = await fetch(`${API_BASE_URL}/new-books`);
+      const fallbackData = await fallbackResponse.json();
+      
+      if (fallbackData.status === 200 && fallbackData.records) {
+        const books: Book[] = fallbackData.records.map((apiBook: any) => normalizeApiBookToBook(apiBook)).slice(0, 8);
         return {
           data: books,
           status: 200
@@ -402,51 +520,153 @@ export const BookService = {
       };
     } catch (error) {
       console.error('Failed to fetch new releases:', error);
-      return {
-        data: [],
-        status: 500
-      };
+      throw new ApiError('Failed to fetch new releases', 500);
     }
   },
 
   // Get related books by ID
   getRelatedBooks: async (id: string): Promise<ApiResponse<Book[]>> => {
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 200)); // Realistic delay
-    const book = books.find(book => book.id === id);
-    if (!book) {
-      console.error(`Cannot find related books - book with ID "${id}" not found`);
+    try {
+      // Try to get related products from API first
+      const response = await fetch(`${API_BASE_URL}/products/${id}/related`);
+      const data = await response.json();
+      
+      if (data.status === 200 && data.data) {
+        const books: Book[] = data.data.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        return {
+          data: books,
+          status: 200
+        };
+      }
+      
+      // Fallback: get the book first, then find related books
+      const bookResponse = await BookService.getBookById(id);
+      if (!bookResponse.data) {
+        throw new ApiError('Book not found', 404);
+      }
+      
+      const book = bookResponse.data;
+      
+      // Get books from same category
+      const categoryBooksResponse = await BookService.getProductsByCategory(book.category_id, 1, 5);
+      let relatedBooks = categoryBooksResponse.data.filter(b => b.id !== book.id).slice(0, 4);
+      
+      // If we don't have enough related books, get some featured books
+      if (relatedBooks.length < 4) {
+        const featuredResponse = await BookService.getFeaturedBooks();
+        const additionalBooks = featuredResponse.data
+          .filter(b => b.id !== book.id && !relatedBooks.some(rb => rb.id === b.id))
+          .slice(0, 4 - relatedBooks.length);
+        
+        relatedBooks = [...relatedBooks, ...additionalBooks];
+      }
+
+      return {
+        data: relatedBooks,
+        status: 200
+      };
+    } catch (error) {
+      console.error('Failed to fetch related books:', error);
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('Failed to fetch related books', 500);
+    }
+  },
+
+  // Search books with query and filters
+  searchBooks: async (query: string, filters?: Omit<BookFilters, 'search'>): Promise<ApiResponse<Book[]>> => {
+    try {
+      // Build query parameters
+      const params = new URLSearchParams();
+      params.append('search', query);
+      if (filters?.category) params.append('category', filters.category);
+      if (filters?.subcategory) params.append('subcategory', filters.subcategory);
+      if (filters?.sortBy) params.append('sort', filters.sortBy);
+      if (filters?.order) params.append('order', filters.order);
+      if (filters?.page) params.append('page', filters.page.toString());
+      if (filters?.per_page) params.append('per_page', filters.per_page.toString());
+
+      // Try enhanced search API first
+      const response = await fetch(`${API_BASE_URL}/search?${params.toString()}`);
+      const data = await response.json();
+      
+      if (data.status === 200 && data.data) {
+        const books: Book[] = data.data.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        return {
+          data: books,
+          status: 200
+        };
+      }
+      
+      // Fallback to client-side search using getAllBooks
+      const allBooksResponse = await BookService.getAllBooks({
+        ...filters,
+        search: query
+      });
+      
+      return allBooksResponse;
+    } catch (error) {
+      console.error('Failed to search books:', error);
+      throw new ApiError('Failed to search books', 500);
+    }
+  },
+
+  // Get products by category with pagination
+  getProductsByCategory: async (
+    categorySlug: string, 
+    page: number = 1, 
+    perPage: number = 20
+  ): Promise<ApiResponse<Book[]>> => {
+    try {
+      // Build query parameters
+      const params = new URLSearchParams();
+      params.append('category', categorySlug);
+      params.append('page', page.toString());
+      params.append('per_page', perPage.toString());
+
+      // Try enhanced products API first
+      const response = await fetch(`${API_BASE_URL}/products?${params.toString()}`);
+      const data = await response.json();
+      
+      if (data.status === 200 && data.data) {
+        const books: Book[] = data.data.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        return {
+          data: books,
+          status: 200
+        };
+      }
+      
+      // Fallback to category-wise endpoint
+      const fallbackResponse = await fetch(`${API_BASE_URL}/category-wise`);
+      const fallbackData = await fallbackResponse.json();
+      
+      if (fallbackData.status === 200 && fallbackData.records) {
+        // Filter by category and apply pagination
+        const allBooks: Book[] = fallbackData.records.map((apiBook: any) => normalizeApiBookToBook(apiBook));
+        const categoryBooks = allBooks.filter(book => 
+          book.category_id === categorySlug || 
+          book.slug?.includes(categorySlug.toLowerCase())
+        );
+        
+        // Apply pagination
+        const startIndex = (page - 1) * perPage;
+        const paginatedBooks = categoryBooks.slice(startIndex, startIndex + perPage);
+        
+        return {
+          data: paginatedBooks,
+          status: 200
+        };
+      }
+      
       return {
         data: [],
-        status: 404,
-        message: 'Book not found'
+        status: 200
       };
+    } catch (error) {
+      console.error('Failed to fetch products by category:', error);
+      throw new ApiError('Failed to fetch products by category', 500);
     }
-
-    // First try to find books in same category
-    let relatedBooks = books
-      .filter(b => b.id !== book.id && b.category_id === book.category_id)
-      .slice(0, 4);
-    
-    // If we don't have enough related books, add some bestsellers
-    if (relatedBooks.length < 4) {
-      const additionalBooks = books
-        .filter(b => b.id !== book.id && b.category_id !== book.category_id && b.bestseller_rank !== undefined)
-        .sort((a, b) => (a.bestseller_rank || 0) - (b.bestseller_rank || 0))
-        .slice(0, 4 - relatedBooks.length);
-      
-      relatedBooks = [...relatedBooks, ...additionalBooks];
-    }
-
-    // Ensure images for all related books
-    relatedBooks = relatedBooks.map(book => ({
-      ...book,
-      images: book.images?.length > 0 ? book.images : ['/img/book-categori/book-placeholder.png']
-    }));
-
-    return {
-      data: relatedBooks,
-      status: 200
-    };
   }
 };
 
@@ -920,27 +1140,9 @@ export const ProfileService = {
 
 // Search Service
 export const SearchService = {
-  searchBooks: async (query: string): Promise<ApiResponse<Book[]>> => {
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const searchResults = books.filter(book => {
-      const searchLower = query.toLowerCase();
-      return (
-        book.title.toLowerCase().includes(searchLower) ||
-        book.description.toLowerCase().includes(searchLower) ||
-        book.authors.some(author => 
-          author.name.toLowerCase().includes(searchLower)
-        ) ||
-        book.tags.some(tag => 
-          tag.toLowerCase().includes(searchLower)
-        )
-      );
-    });
-
-    return {
-      data: searchResults,
-      status: 200
-    };
+  searchBooks: async (query: string, filters?: Omit<BookFilters, 'search'>): Promise<ApiResponse<Book[]>> => {
+    // Use the enhanced BookService.searchBooks method
+    return BookService.searchBooks(query, filters);
   }
 };
 

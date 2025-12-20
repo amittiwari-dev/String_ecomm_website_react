@@ -1,21 +1,60 @@
 import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, AlertCircle, RefreshCw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { authors } from '@/data/mockData';
+import { Button } from '@/components/ui/button';
 import { useUrlStringState } from '@/hooks/useUrlState';
 import { useMemo, useState, useEffect } from 'react';
 import { AuthorsPageSkeleton } from '@/components/ui/author-skeleton';
+import { useToast } from '@/hooks/use-toast';
+
+interface Author {
+  id: string;
+  name: string;
+  slug: string;
+  bio: string;
+  socials?: {
+    website?: string;
+  };
+}
 
 const Authors = () => {
   const [searchTerm, setSearchTerm] = useUrlStringState('search', '');
   const [selectedLetter, setSelectedLetter] = useUrlStringState('letter', '');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [authors, setAuthors] = useState<Author[]>([]);
+  const { toast } = useToast();
 
-  // Simulate loading for demonstration
+  const fetchAuthors = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      // For now, show empty state since we don't have an authors API endpoint
+      // In a real implementation, this would fetch from an API
+      setAuthors([]);
+      
+      toast({
+        title: "Authors Page",
+        description: "Author profiles will be available soon",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Failed to fetch authors:', error);
+      setError('Failed to load authors');
+      toast({
+        title: "Error",
+        description: "Failed to load authors. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
+    fetchAuthors();
   }, []);
 
   // Filter authors based on search term and selected letter
@@ -51,6 +90,32 @@ const Authors = () => {
 
   if (loading) {
     return <AuthorsPageSkeleton />;
+  }
+
+  if (error || authors.length === 0) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 max-w-md mx-auto">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">
+              Authors Section
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Author profiles and detailed information will be available soon. 
+              We're working on bringing you comprehensive author biographies and their works.
+            </p>
+            <Button
+              onClick={fetchAuthors}
+              className="inline-flex items-center gap-2"
+              variant="outline"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Check Again
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

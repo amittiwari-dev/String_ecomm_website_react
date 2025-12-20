@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { categories, getCategoriesByParent } from '@/data/mockData';
+import { MenuService } from '@/services/menuService';
+
+interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  parent_id: string | null;
+}
 
 const PublishWithUs = () => {
   const [formData, setFormData] = useState({
@@ -21,10 +28,36 @@ const PublishWithUs = () => {
     language: '',
     consent: false
   });
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const { toast } = useToast();
 
-  const mainCategories = getCategoriesByParent(null);
   const languages = ['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Oriya', 'Sanskrit'];
+
+  const fetchCategories = async () => {
+    try {
+      setLoadingCategories(true);
+      const response = await MenuService.getCategories();
+      // Filter main categories (no parent_id)
+      const mainCategories = response.filter(cat => !cat.parent_id);
+      setCategories(mainCategories);
+    } catch (error) {
+      console.error('Failed to fetch categories:', error);
+      // Use fallback categories if API fails
+      setCategories([
+        { id: '2', name: 'Books on Shirdi Sai Baba', slug: 'shirdi-sai-baba', parent_id: null },
+        { id: '3', name: 'Other Religious Books', slug: 'other-religious', parent_id: null },
+        { id: '4', name: 'Coffee Table Books and Paperbacks', slug: 'coffee-table-paperbacks', parent_id: null },
+        { id: '5', name: 'Text Books', slug: 'textbooks', parent_id: null },
+      ]);
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,11 +238,15 @@ const PublishWithUs = () => {
                           <SelectValue placeholder="Select category" />
                         </SelectTrigger>
                         <SelectContent>
-                          {mainCategories.map((category) => (
-                            <SelectItem key={category.id} value={category.slug}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
+                          {loadingCategories ? (
+                            <SelectItem value="loading" disabled>Loading categories...</SelectItem>
+                          ) : (
+                            categories.map((category) => (
+                              <SelectItem key={category.id} value={category.slug}>
+                                {category.name}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                     </div>

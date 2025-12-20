@@ -1,9 +1,39 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { Book } from '../data/mockData';
 import { CartService, Cart as ApiCart } from '../services/api';
 import { getToken } from '../lib/auth';
 import { handleApiError } from '../lib/errorHandler';
 import { toast } from 'sonner';
+
+// Book interface for type safety
+export interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  language: string;
+  format: 'Hardcover' | 'Paperback' | 'eBook';
+  price: number;
+  currency: string;
+  isbn10?: string;
+  isbn13?: string;
+  publication_date: string;
+  pages?: number;
+  stock_status: 'In Stock' | 'Out of Stock' | 'Preorder';
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    bio: string;
+  }>;
+  series?: string;
+  category_id: string;
+  tags: string[];
+  bestseller_rank?: number;
+  is_latest_release: boolean;
+  rating?: number;
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/';
 
@@ -212,8 +242,16 @@ const normalizeToBook = (input: any): Book => {
     if (api.product_image.startsWith('http://') || api.product_image.startsWith('https://')) {
       cover = api.product_image;
     } else {
-      // For local development, use Laravel storage path
-      cover = `http://127.0.0.1:8000/storage/products/${api.product_image}`;
+      // Check environment for proper URL construction
+      const isLocal = API_BASE_URL?.includes('localhost') || API_BASE_URL?.includes('127.0.0.1');
+      
+      if (isLocal) {
+        // For local development, use Laravel storage path
+        cover = `http://127.0.0.1:8000/storage/products/${api.product_image}`;
+      } else {
+        // For production
+        cover = `https://sterlingpublishers.in/publishing/images/products/${api.product_image}`;
+      }
     }
   }
     

@@ -1,46 +1,117 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { getLatestReleases } from '@/data/mockData';
+import { BookService } from '@/services/api';
+import { useToast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
+import { QUERY_CONFIG } from '@/lib/queryConfig';
+
+interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  price: number;
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+  }>;
+}
 
 const HeroCarousel = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const latestBooks = getLatestReleases().slice(0, 5); // Show top 5 latest releases
-  
-  console.log('HeroCarousel rendered, books count:', latestBooks.length);
+  const { toast } = useToast();
+
+  // Use React Query to fetch featured books
+  const { 
+    data: booksResponse, 
+    isLoading: loading, 
+    error,
+    refetch 
+  } = useQuery({
+    queryKey: queryKeys.books.featured(),
+    queryFn: BookService.getFeaturedBooks,
+    ...QUERY_CONFIG.CONTENT_DATA,
+  });
+
+  const books = booksResponse?.data?.slice(0, 5) || [];
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % latestBooks.length);
-    }, 5000);
+    if (books.length > 0) {
+      const timer = setInterval(() => {
+        setCurrentSlide((prev) => (prev + 1) % books.length);
+      }, 5000);
 
-    return () => clearInterval(timer);
-  }, [latestBooks.length]);
+      return () => clearInterval(timer);
+    }
+  }, [books.length]);
 
   const goToSlide = (index: number) => {
     setCurrentSlide(index);
   };
 
   const goToPrevious = () => {
-    setCurrentSlide((prev) => (prev - 1 + latestBooks.length) % latestBooks.length);
+    setCurrentSlide((prev) => (prev - 1 + books.length) % books.length);
   };
 
   const goToNext = () => {
-    setCurrentSlide((prev) => (prev + 1) % latestBooks.length);
+    setCurrentSlide((prev) => (prev + 1) % books.length);
   };
 
-  if (latestBooks.length === 0) {
+  if (loading) {
     return (
-      <section className="relative w-full h-[500px] overflow-hidden bg-gradient-to-r from-sterling-red-light to-white">
+      <section className="relative w-full h-[500px] overflow-hidden bg-gradient-to-r from-primary/10 to-white animate-in fade-in-0 duration-500">
         <div className="container mx-auto px-4 h-full flex items-center justify-center">
           <div className="text-center">
-            <h1 className="text-4xl md:text-5xl font-bold mb-4">Welcome to Sterling Publishers</h1>
-            <p className="text-xl text-muted-foreground mb-8">Discover our collection of quality books</p>
-            <Button asChild>
-              <Link to="/books">Browse Books</Link>
-            </Button>
+            <div className="animate-pulse space-y-4">
+              <div className="h-12 bg-gray-200 rounded w-96 mx-auto"></div>
+              <div className="h-6 bg-gray-200 rounded w-64 mx-auto"></div>
+              <div className="h-10 bg-gray-200 rounded w-32 mx-auto"></div>
+            </div>
+            <p className="text-sm text-muted-foreground mt-4">Loading featured books...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (error || books.length === 0) {
+    return (
+      <section className="relative w-full h-[500px] overflow-hidden bg-gradient-to-r from-primary/10 to-white">
+        <div className="container mx-auto px-4 h-full flex items-center justify-center">
+          <div className="text-center">
+            {error ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-8 max-w-md mx-auto">
+                <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-red-800 mb-2">
+                  Unable to Load Featured Books
+                </h3>
+                <p className="text-red-600 mb-4">
+                  {error instanceof Error ? error.message : 'Failed to load featured books'}
+                </p>
+                <Button
+                  onClick={() => refetch()}
+                  className="inline-flex items-center gap-2"
+                  variant="outline"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Retry
+                </Button>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-4xl md:text-5xl font-bold mb-4">Welcome to Sterling Publishers</h1>
+                <p className="text-xl text-muted-foreground mb-8">Discover our collection of quality books</p>
+                <Button asChild>
+                  <Link to="/books">Browse Books</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -53,7 +124,7 @@ const HeroCarousel = () => {
         <div className="relative h-full">
           {/* Slides */}
           <div className="relative h-full flex items-center">
-            {latestBooks.map((book, index) => (
+            {books.map((book, index) => (
               <div
                 key={book.id}
                 className={`absolute inset-0 transition-opacity duration-500 ${
@@ -140,7 +211,7 @@ const HeroCarousel = () => {
 
           {/* Indicators */}
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex space-x-2">
-            {latestBooks.map((_, index) => (
+            {books.map((_, index) => (
               <button
                 key={index}
                 className={`w-3 h-3 rounded-full transition-colors ${

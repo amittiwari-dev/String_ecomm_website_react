@@ -1,12 +1,41 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
-import { ShoppingCart, Star, Minus, Plus } from "lucide-react";
+import { ShoppingCart, Star, Minus, Plus, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "../context/CartContext";
 import { BookService } from "../services/api";
-import { Book } from "../data/mockData";
 import { toast } from "sonner";
+import { getApiErrorMessage, logError } from '@/utils/environment';
+
+// Book interface for type safety
+interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  language: string;
+  format: 'Hardcover' | 'Paperback' | 'eBook';
+  price: number;
+  currency: string;
+  isbn10?: string;
+  isbn13?: string;
+  publication_date: string;
+  pages?: number;
+  stock_status: 'In Stock' | 'Out of Stock' | 'Preorder';
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    bio: string;
+  }>;
+  category_id: string;
+  tags: string[];
+  is_latest_release: boolean;
+  rating?: number;
+}
 
 const DetailsPage = () => {
   const { idSlug } = useParams<{ idSlug: string }>();
@@ -16,11 +45,14 @@ const DetailsPage = () => {
   const [book, setBook] = useState<Book | null>(location.state?.book ?? null);
   const [relatedBooks, setRelatedBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const { addToCart } = useCart();
 
-  useEffect(() => {
-    const fetchBookDetails = async () => {
+  const fetchBookDetails = async () => {
+    try {
+      setError(null);
+      
       // If book was passed in navigation state (from API list), use it and skip fetch
       if (location.state?.book) {
         setBook(location.state.book);
@@ -31,41 +63,51 @@ const DetailsPage = () => {
           setRelatedBooks(relatedResponse.data || []);
         } catch (err) {
           console.error('Failed to fetch related books:', err);
+          // Don't show error for related books failure
         }
         return;
       }
 
       if (!id) {
-        console.error('No book ID provided');
-        toast.error('Invalid book ID');
+        const errorMsg = 'Invalid book ID provided';
+        setError(errorMsg);
+        toast.error(errorMsg);
         setLoading(false);
         return;
       }
 
       setLoading(true);
-      try {
-        console.log('Fetching details for book ID:', id);
-        const [bookResponse, relatedResponse] = await Promise.all([
-          BookService.getBookById(id),
-          BookService.getRelatedBooks(id)
-        ]);
+      console.log('Fetching details for book ID:', id);
+      
+      const [bookResponse, relatedResponse] = await Promise.all([
+        BookService.getBookById(id),
+        BookService.getRelatedBooks(id).catch(err => {
+          console.warn('Related books fetch failed:', err);
+          return { data: [] }; // Don't fail the whole request for related books
+        })
+      ]);
 
-        console.log('Book response:', bookResponse);
-        if (bookResponse.data) {
-          setBook(bookResponse.data);
-          setRelatedBooks(relatedResponse.data || []);
-        } else {
-          console.error('Book not found:', bookResponse.message);
-          toast.error(bookResponse.message || 'Book not found');
-        }
-      } catch (error) {
-        console.error('Error fetching book details:', error);
-        toast.error('Failed to load book details');
-      } finally {
-        setLoading(false);
+      console.log('Book response:', bookResponse);
+      if (bookResponse.data) {
+        setBook(bookResponse.data);
+        setRelatedBooks(relatedResponse.data || []);
+      } else {
+        const errorMsg = bookResponse.message || 'Book not found';
+        setError(errorMsg);
+        toast.error(errorMsg);
       }
-    };
+    } catch (error) {
+      const errorMessage = getApiErrorMessage(error);
+      logError('Error fetching book details', error);
+      
+      setError(errorMessage);
+      toast.error('Failed to load book details');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchBookDetails();
   }, [id]);
 
@@ -76,9 +118,13 @@ const DetailsPage = () => {
     }
   };
 
+  const handleRetry = () => {
+    fetchBookDetails();
+  };
+
   return (
     <section className="py-10 bg-gray-50">
-      {loading || !book ? (
+      {loading ? (
         <div className="container mx-auto px-6 lg:px-20">
           <div className="grid md:grid-cols-2 gap-10 bg-white rounded-2xl shadow-lg p-6">
             <div className="animate-pulse bg-gray-200 h-[400px] rounded-xl"></div>
@@ -90,7 +136,27 @@ const DetailsPage = () => {
             </div>
           </div>
         </div>
-      ) : (
+      ) : error ? (
+        <div className="container mx-auto px-6 lg:px-20">
+          <div className="text-center">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-8 max-w-md mx-auto">
+              <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-red-800 mb-2">
+                Unable to Load Book Details
+              </h3>
+              <p className="text-red-600 mb-4">{error}</p>
+              <Button
+                onClick={handleRetry}
+                className="inline-flex items-center gap-2"
+                variant="outline"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Retry
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : book ? (
         <>
           <div className="text-center mb-12">
             <h1 className="text-4xl font-bold mb-4">Shop Details</h1>
@@ -267,6 +333,22 @@ const DetailsPage = () => {
         </div>
       </div>
         </>
+      ) : (
+        <div className="container mx-auto px-6 lg:px-20">
+          <div className="text-center">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 max-w-md mx-auto">
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                Book Not Found
+              </h3>
+              <p className="text-gray-600 mb-4">The requested book could not be found.</p>
+              <Link to="/books">
+                <Button variant="outline">
+                  Browse All Books
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

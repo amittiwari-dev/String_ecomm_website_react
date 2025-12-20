@@ -1,9 +1,98 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
-import { authors } from '@/data/mockData';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
+
+interface Author {
+  id: string;
+  name: string;
+  slug: string;
+  bio: string;
+  socials?: {
+    website?: string;
+  };
+}
 
 const AuthorCarousel = () => {
+  const [authors, setAuthors] = useState<Author[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const fetchAuthors = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      // For now, show a placeholder message since we don't have an authors API endpoint
+      // In a real implementation, this would fetch from an API
+      setAuthors([]);
+      
+      toast({
+        title: "Authors Section",
+        description: "Author profiles will be available soon",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Failed to fetch authors:', error);
+      setError('Failed to load authors');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAuthors();
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
+            <div className="animate-pulse">
+              <div className="h-10 bg-gray-200 rounded w-64 mx-auto mb-4"></div>
+              <div className="h-6 bg-gray-200 rounded w-96 mx-auto"></div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="animate-pulse">
+                <div className="bg-gray-200 rounded-lg h-48"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (error || authors.length === 0) {
+    return (
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <div className="text-center">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 max-w-md mx-auto">
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                Featured Authors
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Author profiles and information will be available soon.
+              </p>
+              <Link to="/authors">
+                <Button variant="outline">
+                  Learn More About Our Authors
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="py-16">
       <div className="container mx-auto px-4">

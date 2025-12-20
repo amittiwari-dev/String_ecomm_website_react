@@ -7,7 +7,34 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useCart } from "../context/CartContext";
 import { toast as sonnerToast } from "sonner";
-import { Book } from '@/data/mockData';
+// Book interface for type safety
+interface Book {
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  description: string;
+  language: string;
+  format: 'Hardcover' | 'Paperback' | 'eBook';
+  price: number;
+  currency: string;
+  isbn10?: string;
+  isbn13?: string;
+  publication_date: string;
+  pages?: number;
+  stock_status: 'In Stock' | 'Out of Stock' | 'Preorder';
+  images: string[];
+  authors: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    bio: string;
+  }>;
+  category_id: string;
+  tags: string[];
+  is_latest_release: boolean;
+  rating?: number;
+}
 
 // Helper to map API-shaped book to internal Book shape used across the app
 const mapApiBookToBook = (api: any): Book => {
@@ -21,11 +48,25 @@ const mapApiBookToBook = (api: any): Book => {
   const slug = api.product_slug || api.slug || idStr;
   
   // Use the correct base URL for images with proper fallback
-  const base = 'https://sterlingpublishers.in/publishing';
   let cover = '/img/book-categori/book-placeholder.png';
   
   if (api.product_image) {
-    cover = `${base}/images/products/${api.product_image}`;
+    // If product_image is already a full URL, use it as is
+    if (api.product_image.startsWith('http://') || api.product_image.startsWith('https://')) {
+      cover = api.product_image;
+    } else {
+      // Otherwise, construct the URL based on environment
+      // Check if we're in local development
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      if (isLocal) {
+        // Local development - Laravel storage path
+        cover = `http://127.0.0.1:8000/storage/products/${api.product_image}`;
+      } else {
+        // Production
+        cover = `https://sterlingpublishers.in/publishing/images/products/${api.product_image}`;
+      }
+    }
   } else if (api.images && Array.isArray(api.images) && api.images.length > 0) {
     // Handle case where book already has images array
     cover = api.images[0];
